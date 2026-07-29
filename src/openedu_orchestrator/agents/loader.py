@@ -1,0 +1,86 @@
+"""Loader Agent -- writes into OpenEduCat, and only via the ORM-shaped client.
+
+Per the report (Section 3.3 / Section 7): writes go through OpenEduCat's ORM
+(XML-RPC in production; here, the equivalently-shaped OpenEduCatClient) so
+computed fields and validation behave correctly. The Loader executes exactly
+the action it is told -- create, write (update), or write with active=False
+(archive) -- and makes no decisions of its own about which action applies.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from openedu_orchestrator.config import OPENEDUCAT_DB_PATH, OPENEDUCAT_MODEL_FOR_ENTITY
+from openedu_orchestrator.models import LoadResult
+from openedu_orchestrator.openeducat_client import OpenEduCatClient
+
+
+class LoaderAgent:
+    def __init__(self, client: OpenEduCatClient | None = None, db_path: Path = OPENEDUCAT_DB_PATH):
+        self._client = client or OpenEduCatClient(db_path)
+        self._owns_client = client is None
+
+    def close(self) -> None:
+        if self._owns_client:
+            self._client.close()
+
+    def apply(
+        self,
+        entity_type: str,
+        action: str,
+        fields: dict,
+        pieas_id: str,
+        openeducat_id: int | None = None,
+    ) -> LoadResult:
+        model = OPENEDUCAT_MODEL_FOR_ENTITY[entity_type]
+        try:
+            if action == "create":
+                new_id = self._client.create(model, fields)
+                return LoadResult(
+                    entity_type=entity_type, pieas_id=pieas_id, action=action,
+                    openeducat_id=new_id, ok=True,
+                )
+            if action == "update":
+                if openeducat_id is None:
+                    raise ValueError("update requires an existing openeducat_id")
+                self._client.write(model, openeducat_id, fields)
+                return LoadResult(
+                    entity_type=entity_type, pieas_id=pieas_id, action=action,
+                    openeducat_id=openeducat_id, ok=True,
+                )
+            if action == "archive":
+                if openeducat_id is None:
+                    raise ValueError("archive requires an existing openeducat_id")
+                self._client.archive(model, openeducat_id)
+                return LoadResult(
+                    entity_type=entity_type, pieas_id=pieas_id, action=action,
+                    openeducat_id=openeducat_id, ok=True,
+                )
+            raise ValueError(f"Unknown load action: {action!r}")
+        except Exception as exc:  # noqa: BLE001 -- surfaced in RunReport.errors, not swallowed
+            return LoadResult(
+                entity_type=entity_type, pieas_id=pieas_id, action=action,
+                openeducat_id=openeducat_id or -1, ok=False, error=str(exc),
+            )
+
+    def apply_batch(self, entity_type: str, classified_and_transformed: list[dict]) -> list[LoadResult]:
+        """Each item: {action, pieas_id, openeducat_id, fields}."""
+        results = []
+        for item in classified_and_transformed:
+            results.append(
+                self.apply(
+                    entity_type=entity_type,
+                    action=item["action"],
+                    fields=item.get("fields", {}),
+                    pieas_id=item["pieas_id"],
+                    openeducat_id=item.get("openeducat_id"),
+                )
+            )
+        return results
+
+    def read_back(self, entity_type: str, openeducat_id: int) -> dict | None:
+        """Used by the optional Validation Agent -- re-reads a record after a write."""
+        model = OPENEDUCAT_MODEL_FOR_ENTITY[entity_type]
+        rows = self._client.read(model, [openeducat_id])
+        return rows[0] if rows else None

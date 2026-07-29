@@ -1,0 +1,16 @@
+[project]
+name = "openedu-orchestrator"
+version = "0.1.0"
+description = "Agentic multi-agent data synchronization system: PIEAS Website -> OpenEduCat ERP (test/dummy-data build)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
