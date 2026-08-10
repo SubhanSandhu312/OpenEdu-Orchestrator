@@ -9,3 +9,4 @@ htmlcov/
 *.egg-info/
 data/*.db
 .claude/
+.env

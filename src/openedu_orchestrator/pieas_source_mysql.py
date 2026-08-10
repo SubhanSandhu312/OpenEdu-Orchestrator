@@ -19,6 +19,7 @@ the semantic the SQLite trigger was built to replicate.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Any, Iterable, Optional
 
@@ -68,8 +69,16 @@ CREATE TABLE IF NOT EXISTS courses (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 """
 
+# Read from the environment so nothing but this local-dev fallback (a
+# throwaway local MySQL instance's dummy credentials) ever lives in source
+# control -- override via OPENEDU_PIEAS_MYSQL_* for staging/prod, same
+# pattern as the Odoo credentials in config.py.
 DEFAULT_CONNECTION = dict(
-    host="127.0.0.1", port=3307, user="pieas_app", password="pieas_app_pw", database="pieas_real",
+    host=os.environ.get("OPENEDU_PIEAS_MYSQL_HOST", "127.0.0.1"),
+    port=int(os.environ.get("OPENEDU_PIEAS_MYSQL_PORT", "3307")),
+    user=os.environ.get("OPENEDU_PIEAS_MYSQL_USER", "pieas_app"),
+    password=os.environ.get("OPENEDU_PIEAS_MYSQL_PASSWORD", "pieas_app_pw"),
+    database=os.environ.get("OPENEDU_PIEAS_MYSQL_DATABASE", "pieas_real"),
 )
 
 

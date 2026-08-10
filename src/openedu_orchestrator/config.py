@@ -9,6 +9,7 @@ OpenEduCat only).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -55,10 +56,15 @@ BULK_PAGE_SIZE = 25
 # from source, running on port 8070 -- see odoo-openeducat/ sibling project
 # dir). Used by OdooXmlRpcClient, the real counterpart to the SQLite-backed
 # OpenEduCatClient mock the test suite still runs against.
-ODOO_URL = "http://localhost:8070"
-ODOO_DB = "openeducat_test"
-ODOO_USERNAME = "admin"
-ODOO_PASSWORD = "admin"
+#
+# Read from the environment so nothing but this local-dev fallback ever
+# lives in source control -- override via OPENEDU_ODOO_* for staging/prod
+# (or set them and leave the fallback alone for this local build, which is
+# all "admin"/"admin" against a throwaway local Odoo instance is good for).
+ODOO_URL = os.environ.get("OPENEDU_ODOO_URL", "http://localhost:8070")
+ODOO_DB = os.environ.get("OPENEDU_ODOO_DB", "openeducat_test")
+ODOO_USERNAME = os.environ.get("OPENEDU_ODOO_USERNAME", "admin")
+ODOO_PASSWORD = os.environ.get("OPENEDU_ODOO_PASSWORD", "admin")
 
 # Retry/backoff for OdooXmlRpcClient's RPC calls -- only transient,
 # network-level failures are retried (connection reset, timeout); Odoo
