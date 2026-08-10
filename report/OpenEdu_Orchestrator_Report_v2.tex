@@ -115,7 +115,7 @@
     \textbf{Source report:} \textit{PIEAS\_OpenEduCat\_MultiAgent\_Report 2.pdf} (Revision~2, simplified 4-agent design), a Multi-Agent Systems / AI Agents course assignment.\\[0.3cm]
     \textbf{This document (Revision~2):} supersedes the first implementation report, which described a build running entirely against dummy data and a mock target. The system now additionally runs against a \textbf{real, self-hosted Odoo 19.0 + OpenEduCat 19.0 instance} and a \textbf{real MySQL-backed source database}, behind a formal multi-source adapter contract.\\[0.3cm]
     \textbf{Repository:} \url{https://github.com/SubhanSandhu312/OpenEdu-Orchestrator}\\[0.3cm]
-    \textbf{Result:} 4 cooperating agents + 1 optional Validation agent, 1 LangGraph state machine serving 3 sync cycles, 3 pluggable source adapters, 2 interchangeable targets (mock and real Odoo), a design-time LLM-assisted mapping-authoring tool, a read-only reconciliation/drift-audit command, and an \textbf{84-test pytest suite} running green in CI on Python 3.11 and 3.12.
+    \textbf{Result:} 4 cooperating agents + 1 optional Validation agent, 1 LangGraph state machine serving 3 sync cycles, 4 synced entity types (including the relational \texttt{mark}), 3 pluggable source adapters, 2 interchangeable targets (mock and real Odoo), a design-time LLM-assisted mapping-authoring tool, a read-only reconciliation/drift-audit command, and a \textbf{104-test pytest suite} running green in CI on Python 3.11 and 3.12.
 };
 \end{tikzpicture}
 \end{center}
@@ -167,7 +167,11 @@ The system as it now stands:
     \item is \textbf{production-hardened}: retry/backoff on transient RPC failures, structured JSON
           logging, environment-variable credential loading, and continuous integration
           (Section~\ref{sec:hardening}); and
-    \item is verified by an \textbf{84-test pytest suite} (up from 57) that remains fully
+    \item syncs \textbf{four entity types} -- \texttt{student}, \texttt{faculty},
+          \texttt{course}, and \texttt{mark}, the last being the source report's own worked
+          example of an ongoing change and the first \emph{relational} entity, which required
+          cross-entity dependency handling (Section~\ref{sec:refdata}); and
+    \item is verified by a \textbf{104-test pytest suite} (up from 57) that remains fully
           self-contained -- no live Odoo or MySQL needed -- so it runs unmodified in CI.
 \end{itemize}
 
@@ -195,6 +199,8 @@ State scoping & \ttu{(pieas_id, entity_type)} &
 \ttu{(source_system, source_id, entity_type)} -- two sources cannot collide \\
 Field mapping & Hand-written Python only &
 Hand-written for the mock; reviewed, compiled JSON mappings for the real target, drafted by an LLM tool \\
+Entity types & 3 flat entities & 4, adding the relational \texttt{mark} -- with ordering and
+cross-entity reference resolution to support it \\
 Cutover safety & None &
 \texttt{reconcile} drift audit, exits 1 on drift \\
 Failure handling & Errors surfaced in the run report &
@@ -203,7 +209,7 @@ Observability & Rich console output &
 Plus structured JSON logs for aggregation \\
 Credentials & Plaintext in \ttu{config.py} &
 Environment variables with local-dev fallbacks \\
-Tests & 57, run manually & 84, run in CI on Python 3.11 and 3.12 \\
+Tests & 57, run manually & 104, run in CI on Python 3.11 and 3.12 \\
 \bottomrule
 \end{tabular}
 \caption{Revision~1 $\rightarrow$ Revision~2 at a glance.}
@@ -695,6 +701,90 @@ Odoo's own \ttu{active} field is designed for, so the behaviour is identical aga
 the real instance.
 
 % =========================================================================
+\section{Reference Data and Cross-Entity Dependencies}
+\label{sec:refdata}
+% =========================================================================
+
+\subsection{Marks: the report's own example, and the first relational entity}
+
+The source report's problem statement uses \emph{``a quiz mark is updated''} as its worked
+example of an ongoing change, yet Revision~1 synced only students, faculty, and courses.
+Revision~2 adds \texttt{mark} as a fourth entity type -- and doing so exposed a structural
+assumption the pipeline had not previously had to confront.
+
+The first three entities are flat and mutually independent: a faculty row can be synced whether
+or not any student has been. A mark cannot. It is meaningless without the student who sat the
+exam and the subject it was sat in, both of which must already exist on the target. That makes
+\ttu{ENTITY_TYPES} an \textbf{ordered} tuple rather than an incidental one, with \texttt{mark}
+last, which is what lets \ttu{--entity all} complete in a single pass.
+
+The source tables declare real foreign keys with \ttu{ON DELETE CASCADE}, so deleting a student
+genuinely removes their marks -- and the deletion cycle then archives those marks on the target,
+without needing any special knowledge that a cascade happened. It sees only that some IDs it has
+mappings for are no longer in the source's ID list, which is exactly what the report's
+Section~5.3 design already handles.
+
+\subsection{Shared reference records}
+
+Some source values do not name a field on the target at all -- they name a \emph{shared record}
+that many source rows point at. \ttu{department} is not a field on real \ttu{op.student}; it is
+reached through an \ttu{op.student.course} enrollment $\rightarrow$ \ttu{op.batch}
+$\rightarrow$ \ttu{op.course} chain. Revision~1 flagged these as \texttt{unmapped} with an
+explanatory note, which was honest but meant a student synced to the real target arrived with no
+department, batch, or enrollment at all.
+
+These now use a \texttt{reference} handling, which deliberately mirrors the existing
+\texttt{external\_id} sentinel rather than inventing a second mechanism: the compiled transform
+passes the value through under a \ttu{__ref__} prefix, and the client resolves it get-or-create
+style. The placement follows directly from the report's own agent boundaries:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}p{3.2cm}p{10.8cm}@{}}
+\toprule
+\textbf{Candidate layer} & \textbf{Why not / why yes} \\
+\midrule
+Transformer & \textbf{No.} Resolving a reference means querying the target. The report
+(Section~3.3) requires the Transformer to be a pure function; giving it I/O would break the one
+property that makes it trivially testable. \\
+Loader & \textbf{No.} Its job is to execute exactly the action it was handed. Deciding that a
+department must be created first is not that. \\
+Client & \textbf{Yes.} The client \emph{is} the target adapter. ``How this particular target
+represents a student's department'' is precisely its concern, and it is already the only layer
+allowed to talk to the target. \\
+\bottomrule
+\end{tabular}
+\caption{Where reference resolution belongs, argued from the report's existing boundaries rather
+than from convenience.}
+\end{table}
+
+Two properties fall out of this that are worth stating explicitly. First, resolution is
+\textbf{idempotent and shared}: every Physics 2027 student resolves to the same one
+\ttu{op.batch}, and re-syncing an unchanged student does not add a second enrollment. Second,
+cross-entity references need \textbf{no second mapping store} -- a mark's student and subject are
+resolved through the very same \ttu{ir.model.data} external IDs the pipeline registered when it
+synced them, which is the same mechanism that survived the \ttu{source_id} rename intact.
+
+A mark whose student has not been synced yet fails with an error naming the problem, rather than
+writing a dangling foreign key or silently defaulting. That is the same stance taken everywhere
+else in this project: fail loudly rather than corrupt quietly.
+
+\subsection{Constants for required target fields}
+
+\ttu{op.exam.attendees} requires a \ttu{status} (present/absent) that PIEAS has no equivalent
+for -- it records the mark, not attendance. Approved mappings may therefore carry a
+\ttu{constant_fields} block, and \ttu{status} is set to \texttt{present} on the reasoning that a
+recorded mark implies the student sat the paper.
+
+This is deliberately \emph{not} part of \texttt{MappingProposal}, the LLM's output schema. The
+tool's job is to \textbf{report} a required target field it has no source for, under
+\ttu{unmapped_required_target_fields}; deciding what constant belongs there is a human review
+decision. Keeping it out of the proposal schema is a structural way of enforcing the project's
+standing rule that the model never fabricates data -- it can raise the question, but it cannot
+answer it.
+
+% =========================================================================
 \section{Reconciliation and Cutover Verification}
 \label{sec:reconcile}
 % =========================================================================
@@ -947,7 +1037,7 @@ PostgreSQL. \\
 \texttt{click} & CLI & Clean subcommands and shared \texttt{--source}/\texttt{--target} options. \\
 \texttt{rich} & Console output & Readable tables for \texttt{status} and \texttt{demo}. \\
 \texttt{logging} (stdlib) & Structured JSON logs & No new dependency for aggregator-ready output. \\
-\texttt{pytest} & Test suite & 84 tests with isolated per-test databases via \ttu{tmp_path}. \\
+\texttt{pytest} & Test suite & 104 tests with isolated per-test databases via \ttu{tmp_path}. \\
 \bottomrule
 \end{tabular}
 \caption{Full dependency list (\ttu{requirements.txt}).}
@@ -975,28 +1065,28 @@ the system in either direction.
     ybar,
     bar width=11pt,
     width=15.8cm, height=7cm,
-    symbolic x coords={sync-store,source-general,mapping-author,pieas-source,orch-classify,
-                        validator,transformer,retry,oc-client,loader,extractor,
-                        deletion-cycle,change-sync,bulk-migration,logging,end-to-end},
+    symbolic x coords={reference-data,validator,sync-store,source-general,oc-client,
+                        mapping-author,transformer,pieas-source,orch-classify,retry,loader,
+                        extractor,deletion-cycle,change-sync,bulk-migration,logging,end-to-end},
     xtick=data,
     x tick label style={rotate=45, anchor=east, font=\scriptsize},
     ylabel={Number of tests},
-    ymin=0, ymax=10.5,
+    ymin=0, ymax=13.5,
     nodes near coords,
     every node near coord/.append style={font=\scriptsize},
     enlarge x limits=0.05,
     axis lines*=left,
     ]
 \addplot[fill=AgentBlue, draw=NavyBlue] coordinates {
-    (sync-store,9) (source-general,9) (mapping-author,8) (pieas-source,6) (orch-classify,6)
-    (validator,5) (transformer,5) (retry,5) (oc-client,5) (loader,5) (extractor,5)
-    (deletion-cycle,4) (change-sync,4) (bulk-migration,4) (logging,3) (end-to-end,1)
+    (reference-data,12) (validator,9) (sync-store,9) (source-general,9) (oc-client,8)
+    (mapping-author,8) (transformer,6) (pieas-source,6) (orch-classify,6) (retry,5) (loader,5)
+    (extractor,5) (deletion-cycle,4) (change-sync,4) (bulk-migration,4) (logging,3) (end-to-end,1)
 };
 \end{axis}
 \end{tikzpicture}
-\caption{Distribution of the 84-test suite across 16 test modules. The four rightmost-growing
-areas (\texttt{source-general}, \texttt{mapping-author}, \texttt{retry}, \texttt{logging}) are
-entirely new in Revision~2.}
+\caption{Distribution of the 104-test suite across 17 test modules. Five modules
+(\texttt{reference-data}, \texttt{source-general}, \texttt{mapping-author}, \texttt{retry},
+\texttt{logging}) are entirely new in Revision~2.}
 \label{fig:testchart}
 \end{figure}
 
@@ -1082,9 +1172,9 @@ anything about archival behaviour.
 
 \begin{lstlisting}[style=termstyle,caption={Actual output of the full suite.}]
 $ python -m pytest -q
-........................................................................ [ 85%]
-............                                                             [100%]
-84 passed in 3.24s
+........................................................................ [ 69%]
+................................                                         [100%]
+104 passed in 4.19s
 \end{lstlisting}
 
 % =========================================================================
@@ -1173,17 +1263,54 @@ caveat next to the number is preferable to printing a number that invites a wron
 \label{sec:remaining}
 % =========================================================================
 
-The following are deliberately \emph{not} implemented, because they depend on decisions that are
-not the implementer's to make:
+\subsection{Deliberate deviations from the report}
+
+Two places where this implementation knowingly differs from the report's literal text. Both are
+recorded here rather than left for a reader to discover as apparent oversights.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}p{3.6cm}p{10.4cm}@{}}
+\toprule
+\textbf{Report says} & \textbf{What was built, and why} \\
+\midrule
+The Orchestrator ``owns retry and error-logging logic'' (Section~3.3) &
+Error logging is the Orchestrator's, via the run report. \textbf{Retry is not} -- it lives in the
+XML-RPC client. A dropped TCP connection is a property of the transport, not a decision about
+data, and the Orchestrator is defined as the agent that makes decisions about data. Putting
+retry in the client also means it protects the Validator's read-backs, which never pass through
+the Orchestrator at all. The distinction the client draws -- retry transient network failures,
+never Odoo's own application-level rejections -- is only expressible at that layer. \\
+Deletion cycle runs ``once daily'', change cycle ``every 15--60 min'' (Section~4) &
+The intervals exist as configuration, but \textbf{no scheduler is implemented}. \ttu{sync --loop}
+is a \ttu{time.sleep} loop suitable for a demo, and \texttt{deletion-check} has no loop at all.
+Real scheduling belongs to whatever runs the process -- cron, a systemd timer, Celery beat, a
+Kubernetes CronJob -- and picking one is part of the deployment decision below. \\
+\bottomrule
+\end{tabular}
+\caption{Knowing deviations, with their justification.}
+\end{table}
+
+\subsection{Not implemented}
 
 \begin{itemize}[leftmargin=1.4em]
     \item \textbf{Deployment target.} Kubernetes, a long-running VM with a scheduler, or
           serverless functions on a timer are all viable, and the choice materially affects how
           scheduling, log shipping, and secret injection should be wired. The pipeline is
           agnostic today; committing to one prematurely would embed an unowned assumption.
+          \emph{This is the blocker for real scheduling, above.}
     \item \textbf{Secrets-manager integration.} Environment-variable loading is implemented as the
           generic mechanism. Binding to AWS Secrets Manager, HashiCorp Vault, or another specific
           provider follows the deployment decision above.
+    \item \textbf{The REST transport.} Section~7 treats OpenEduCat's REST API as a
+          ``fallback/alternative transport for the Loader Agent'', while recommending XML-RPC as
+          primary. XML-RPC is built and proven; REST is not. The report itself says its
+          availability should be confirmed on the actual instance first, which has not been done.
+    \item \textbf{``Flag for manual review'' deletions.} Section~5.4 lists this as option~3, ``a
+          safer alternative worth mentioning even though archiving was adopted as the default''.
+          Archiving is implemented as specified; the manual-review path is not. Given archiving
+          is already reversible, this is the lowest-value of the outstanding items.
 \end{itemize}
 
 Beyond those, the natural next step is the internship's stated direction: an LLM-driven agentic
@@ -1223,7 +1350,7 @@ strongest thing this report can say about the design it implements.
 src/openedu_orchestrator/
     config.py                 # paths, entity types, schedules, env-var-backed credentials
     logging_config.py         # structured (JSON) logging setup
-    models.py                 # pydantic schemas (PieasStudent/Faculty/Course, RunReport, ...)
+    models.py                 # pydantic schemas (PieasStudent/Faculty/Course/Mark, RunReport)
     state.py                  # LangGraph PipelineState TypedDict
     source_adapter.py         # SourceAdapter Protocol -- the multi-source contract
     source_registry.py        # --source name -> adapter module
@@ -1232,7 +1359,7 @@ src/openedu_orchestrator/
     example_univ_source.py    # second, distinct logical source system
     openeducat_client.py      # OpenEduCatClient (mock) + OdooXmlRpcClient (real) + retry/backoff
     mapping_authoring.py      # Gemini-assisted mapping proposal + compile_mapping()
-    real_target_reference_data.py  # shared reference-data resolution (department -> department_id)
+    real_target_reference_data.py  # shared reference records + __ref__ resolution dispatch
     sync_store.py             # sync_mapping / sync_state -- Orchestrator-only, source-scoped
     seed.py                   # deterministic Faker-based dummy data generator
     graph.py                  # LangGraph StateGraph wiring + run_cycle()
@@ -1245,8 +1372,9 @@ src/openedu_orchestrator/
         orchestrator.py
         validator.py
 mappings/                     # approved (*_pieas.json) + LLM drafts (*_gemini_draft.json)
+.github/workflows/report.yml  # CI: builds this report's PDF
 docs/mapping_authoring_tool.md
-tests/                        # pytest suite (84 tests, 16 modules)
+tests/                        # pytest suite (104 tests, 17 modules)
 .github/workflows/ci.yml      # CI: pytest on Python 3.11 + 3.12
 .env.example                  # documented environment variables
 \end{lstlisting}

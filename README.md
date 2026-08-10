@@ -124,6 +124,41 @@ as an honest historical record; a human reviews and approves the working copy at
 `mappings/*_pieas.json`, which `compile_mapping()` turns into the actual transform function used
 against `--target real`.
 
+### Entity types, and cross-entity dependencies
+
+Four entity types: `student`, `faculty`, `course`, and `mark` (exam/quiz results — the source
+report's own worked example of an ongoing change).
+
+`ENTITY_TYPES` in [`config.py`](src/openedu_orchestrator/config.py) is **order-significant**.
+A mark is a *relational* record: it is meaningless without the student and subject it points at,
+both of which must already exist on the target. `mark` is therefore last, which is what makes
+`--entity all` work in a single pass. The source tables declare real foreign keys with
+`ON DELETE CASCADE`, so deleting a student genuinely removes their marks — and the deletion
+cycle then archives those marks on the target too.
+
+### Reference data (shared records)
+
+Some source values don't name a field on the target — they name a *shared record* that many
+source rows point at. `department` isn't a field on real `op.student` at all; it's reached via
+an `op.student.course` enrollment → `op.batch` → `op.course` chain.
+
+These use a `reference` handling in the mapping, which mirrors the existing `external_id`
+sentinel: the compiled transform passes the value through under a `__ref__` prefix, and
+[`real_target_reference_data.py`](src/openedu_orchestrator/real_target_reference_data.py)
+resolves it get-or-create style. Placement is deliberate — resolving means *talking to the
+target*, which the Transformer can't do without losing its purity, and the Loader must stay dumb,
+so it lives in the client, which is the target adapter.
+
+For marks, the student and subject are resolved through the **same `ir.model.data` external IDs
+the pipeline registered when it synced them** — so cross-entity references need no second mapping
+store. A mark whose student isn't synced yet fails with an error naming the problem, rather than
+writing a dangling foreign key.
+
+Approved mappings may also carry `constant_fields` for a required target field with no source
+equivalent (e.g. `op.exam.attendees.status`). This is deliberately *not* part of the LLM's
+`MappingProposal` schema: the tool's job is to **report** such a field under
+`unmapped_required_target_fields`, while choosing the constant stays a human review decision.
+
 ### Three separate local databases, on purpose
 
 The separation of concerns is enforced at the storage layer, not just by convention:
@@ -204,7 +239,7 @@ src/openedu_orchestrator/
         orchestrator.py
         validator.py
 mappings/                     # approved (*_pieas.json) and draft (*_gemini_draft.json) field mappings
-tests/                        # pytest suite (84 tests) -- see below
+tests/                        # pytest suite (104 tests) -- see below
 .github/workflows/ci.yml      # GitHub Actions: pytest on push/PR to master
 ```
 
@@ -257,7 +292,7 @@ python -m openedu_orchestrator sync --source pieas-mysql --target real --entity 
 python -m openedu_orchestrator status --source pieas-mysql --target real
 ```
 
-`--entity` accepts `student`, `faculty`, `course`, or `all`. `--source` accepts `pieas` (default)
+`--entity` accepts `student`, `faculty`, `course`, `mark`, or `all`. `--source` accepts `pieas` (default)
 or `pieas-mysql`. `--target` accepts `mock` (default) or `real`.
 
 ## Structured logging
@@ -276,7 +311,7 @@ deployment, not eyeballing. Set the level with `OPENEDU_LOG_LEVEL` (default `INF
 .venv/Scripts/python -m pytest -v
 ```
 
-84 tests, all self-contained against SQLite fixtures (no live Odoo/MySQL dependency, so they run
+104 tests, all self-contained against SQLite fixtures (no live Odoo/MySQL dependency, so they run
 in CI unmodified): unit-level agent behaviour (`test_extractor.py`, `test_transformer.py`,
 `test_loader.py`, `test_orchestrator_classification.py`, `test_validator.py`), the storage
 layers (`test_pieas_source.py`, `test_openeducat_client.py`, `test_sync_store.py`), source

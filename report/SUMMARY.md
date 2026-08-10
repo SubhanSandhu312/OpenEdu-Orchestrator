@@ -7,7 +7,7 @@ present the project; read `OpenEdu_Orchestrator_Report_v2.tex` for the full tech
 
 ## 1. What is this project, in one line
 
-**Software that copies PIEAS's student, faculty, and course data into OpenEduCat (the new
+**Software that copies PIEAS's student, faculty, course, and exam-mark data into OpenEduCat (the new
 university system), and then keeps both sides matching automatically — forever.**
 
 ---
@@ -17,7 +17,8 @@ university system), and then keeps both sides matching automatically — forever
 PIEAS wants to move to **OpenEduCat**, a free open-source university management system built on
 Odoo. Two separate problems come with that:
 
-1. **Move everything once.** All existing students, teachers, and courses must be copied over.
+1. **Move everything once.** All existing students, teachers, courses, and exam marks must be
+   copied over.
 2. **Keep it matching after that.** PIEAS keeps being used while the move happens. New students
    get admitted, records get corrected, some get removed. OpenEduCat has to reflect all of it.
 
@@ -83,13 +84,16 @@ It is running software.**
 | Running against a **real Odoo + OpenEduCat installation** | Working |
 | Running against a **real MySQL database** as the PIEAS stand-in | Working |
 | Supporting **other universities**, not just PIEAS | Working (3 different sources supported) |
-| Automated tests | **84 tests, all passing** |
+| Syncing **exam marks** (the report's own example) | Working, tested on a real system |
+| Auto-creating supporting records (department, batch, enrolment, exam) | Working |
+| Automated tests | **104 tests, all passing** |
 | Tests run automatically on every code change | Working (GitHub CI) |
 
 ### The numbers
 
-- **84 automated tests** — all passing (was 57 in the earlier version)
+- **104 automated tests** — all passing (was 57 in the first version)
 - **89 records** successfully verified in the real OpenEduCat system
+- **4** entity types synced: students, faculty, courses, exam marks
 - **3** different data sources supported
 - **2** targets supported (a fake one for testing, and the real Odoo system)
 - **5** real bugs found and fixed — see below
@@ -134,6 +138,13 @@ evidence the original architecture was correct.
   anything.
 - **Reliability features:** automatic retry if the network drops, proper logging for monitoring,
   and passwords moved out of the code into environment settings.
+- **Exam marks, and the supporting records they need.** A mark is different from a student: it
+  only makes sense *attached to* a student and a subject. So the system now understands that
+  some records depend on others, and syncs them in the right order. It also auto-creates the
+  supporting records OpenEduCat needs but PIEAS doesn't have — departments, batches, enrolments,
+  and exams — reusing them instead of duplicating (all Physics 2027 students share one batch).
+  If a mark arrives for a student who hasn't been synced yet, it stops with a clear error
+  instead of writing a broken link.
 
 ---
 
@@ -167,7 +178,7 @@ changes the Extractor. Changing the target system only changes the Loader. When 
 separated, adding real Odoo support required *zero* changes to the other three.
 
 **"Is it tested?"**
-84 automated tests, running automatically on every change, on two Python versions. Plus manual
+104 automated tests, running automatically on every change, on two Python versions. Plus manual
 verification against the real Odoo system, confirmed by reading the data back independently
 rather than trusting the program's own report.
 
