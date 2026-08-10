@@ -67,6 +67,33 @@ PIEAS_MODEL_FOR_ENTITY: dict[str, type[BaseModel]] = {
 }
 
 
+class ExampleUnivStudent(BaseModel):
+    """A second, genuinely different source schema -- proves the adapter
+    pattern generalizes rather than just being renamed PIEAS. Different
+    field names (student_ref/given_name/sex/dob/major/intake_year, not
+    roll_number/first_name/gender/date_of_birth/department/batch_year)
+    AND a different value convention (sex: 'M'/'F' single letters, not
+    gender: 'male'/'female' full words) -- deliberately, so the
+    mapping-authoring tool has to do real translation work, not just
+    match already-identical PIEAS-shaped names.
+
+    "Example University" is a deliberately generic placeholder, not a
+    stand-in for any specific real institution.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    student_ref: str
+    given_name: str
+    family_name: str
+    contact_email: str
+    sex: str
+    dob: date
+    major: str
+    intake_year: int
+    updated_at: datetime
+
+
 class SyncMappingRow(BaseModel):
     id: Optional[int] = None
     pieas_id: str

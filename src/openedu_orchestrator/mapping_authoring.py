@@ -23,23 +23,28 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from openedu_orchestrator.models import (
-    PIEAS_MODEL_FOR_ENTITY,
     FieldMappingEntry,
     MappingProposal,
     UnmappedRequiredTargetField,
 )
+from openedu_orchestrator.source_registry import get_source_system
 
 
-def extract_source_schema(entity_type: str) -> dict[str, dict[str, Any]]:
-    """Field name -> {type, required} from the Pydantic model already
-    defined for this entity type in models.py. Every source system this
-    project supports defines one of these (PIEAS_MODEL_FOR_ENTITY today;
-    a future adapter for another university would add its own) -- no new
-    source-schema infrastructure is needed to support this tool.
+def extract_source_schema(entity_type: str, source_system: str = "pieas") -> dict[str, dict[str, Any]]:
+    """Field name -> {type, required} from the source system's own Pydantic
+    model, looked up via source_registry.SOURCE_SYSTEMS. Defaults to
+    "pieas" so every existing call site keeps working unmodified; pass
+    source_system="example_univ" (or any other registered system) to
+    author a mapping for a different source -- this function has no
+    PIEAS-specific logic left in it at all.
     """
-    if entity_type not in PIEAS_MODEL_FOR_ENTITY:
-        raise ValueError(f"No source model registered for entity_type={entity_type!r}")
-    model = PIEAS_MODEL_FOR_ENTITY[entity_type]
+    spec = get_source_system(source_system)
+    if entity_type not in spec.model_for_entity:
+        raise ValueError(
+            f"No source model registered for entity_type={entity_type!r} "
+            f"under source_system={source_system!r}"
+        )
+    model = spec.model_for_entity[entity_type]
     return {
         name: {"type": str(field.annotation), "required": field.is_required()}
         for name, field in model.model_fields.items()
@@ -163,12 +168,13 @@ def propose_mapping(
     client: Any,
     target_model: str,
     sample_records: Optional[list[dict]] = None,
+    source_system: str = "pieas",
 ) -> MappingProposal:
     """Draft a mapping proposal for a human to review. Never called from
     the live sync pipeline -- run once per new source system or target
     schema change.
     """
-    source_schema = extract_source_schema(entity_type)
+    source_schema = extract_source_schema(entity_type, source_system=source_system)
     target_schema = extract_target_schema(client, target_model)
     prompt = build_mapping_prompt(entity_type, source_schema, target_schema, sample_records)
     raw = _call_llm(prompt)

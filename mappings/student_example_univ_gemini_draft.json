@@ -1,0 +1,90 @@
+{
+  "entity_type": "student",
+  "target_model": "op.student",
+  "field_mappings": [
+    {
+      "source_field": "pieas_id",
+      "target_field": null,
+      "handling": "external_id",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "given_name",
+      "target_field": "first_name",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "family_name",
+      "target_field": "last_name",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "contact_email",
+      "target_field": "email",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "sex",
+      "target_field": "gender",
+      "handling": "value_map",
+      "value_map": [
+        {
+          "source_value": "F",
+          "target_value": "f"
+        },
+        {
+          "source_value": "M",
+          "target_value": "m"
+        }
+      ],
+      "note": null
+    },
+    {
+      "source_field": "dob",
+      "target_field": "birth_date",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "major",
+      "target_field": null,
+      "handling": "unmapped",
+      "value_map": null,
+      "note": "This is a relational mapping to the Course or Department entity which must be linked via a separate process."
+    },
+    {
+      "source_field": "intake_year",
+      "target_field": null,
+      "handling": "unmapped",
+      "value_map": null,
+      "note": "No direct field in target model. Likely requires custom relational linking to an academic year or batch model."
+    },
+    {
+      "source_field": "updated_at",
+      "target_field": "write_date",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    }
+  ],
+  "unmapped_required_target_fields": [
+    {
+      "target_field": "partner_id",
+      "target_label": "Partner",
+      "note": "Requires linking to a pre-existing or created res.partner record for the student."
+    },
+    {
+      "target_field": "autopost_bills",
+      "target_label": "Auto-post bills",
+      "note": "This is an accounting-level configuration field in the target, not applicable to basic student record data."
+    }
+  ]
+}
