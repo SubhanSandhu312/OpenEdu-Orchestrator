@@ -18,11 +18,18 @@ else in the pipeline is allowed a connection to this database.
 from __future__ import annotations
 
 import sqlite3
+import xmlrpc.client
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from openedu_orchestrator.config import OPENEDUCAT_DB_PATH
+from openedu_orchestrator.config import (
+    ODOO_DB,
+    ODOO_PASSWORD,
+    ODOO_URL,
+    ODOO_USERNAME,
+    OPENEDUCAT_DB_PATH,
+)
 
 _MODEL_TABLE = {
     "op.student": "op_student",
@@ -185,3 +192,107 @@ def reset_database(db_path: Path = OPENEDUCAT_DB_PATH) -> OpenEduCatClient:
     if db_path.exists():
         db_path.unlink()
     return OpenEduCatClient(db_path)
+
+
+class OdooXmlRpcClient:
+    """Real OpenEduCat/Odoo access over XML-RPC.
+
+    Exposes the exact same method surface as the mock `OpenEduCatClient`
+    (`create`, `write`, `archive`, `search_read`, `read`) so `LoaderAgent`
+    and `ValidationAgent` need zero changes to use this instead -- only the
+    class constructed at the call site changes. Model names (`op.student`,
+    `op.faculty`, `op.course`) map directly to real Odoo model names, so no
+    table-translation layer is needed here the way the SQLite mock needs one.
+    """
+
+    def __init__(
+        self,
+        url: str = ODOO_URL,
+        db: str = ODOO_DB,
+        username: str = ODOO_USERNAME,
+        password: str = ODOO_PASSWORD,
+    ):
+        self.url = url
+        self.db = db
+        self.password = password
+        common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
+        self.uid = common.authenticate(db, username, password, {})
+        if not self.uid:
+            raise ConnectionError(
+                f"Odoo authentication failed for user {username!r} against db {db!r} at {url}"
+            )
+        self._models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
+
+    def _execute(
+        self, model: str, method: str, args: Optional[list] = None, kwargs: Optional[dict] = None
+    ) -> Any:
+        """`execute_kw`'s real signature takes positional `args` and keyword
+        `kwargs` as two separate parameters -- they must not be merged into
+        one list, or Odoo's ORM receives the kwargs dict as a misplaced
+        positional argument (e.g. as `fields` on search_read).
+        """
+        return self._models.execute_kw(
+            self.db, self.uid, self.password, model, method, args or [], kwargs or {}
+        )
+
+    def close(self) -> None:
+        """No persistent connection to close for XML-RPC; kept for interface parity."""
+
+    _XMLID_MODULE = "openedu_sync"
+
+    def _xmlid_name(self, model: str, external_id: str) -> str:
+        return f"{model.replace('.', '_')}_{external_id}"
+
+    def _set_external_id(self, model: str, res_id: int, external_id: str) -> None:
+        """Register a pieas_id -> Odoo record link via Odoo's own external-ID
+        mechanism (ir.model.data) -- real OpenEduCat models have no field to
+        hold a foreign-system key, so this is the standard Odoo-native way to
+        track it, discoverable from the Odoo side without depending on our
+        own sync_mapping store.
+        """
+        self._execute("ir.model.data", "create", [{
+            "module": self._XMLID_MODULE,
+            "name": self._xmlid_name(model, external_id),
+            "model": model,
+            "res_id": res_id,
+        }])
+
+    def find_by_external_id(self, model: str, external_id: str) -> Optional[int]:
+        rows = self._execute(
+            "ir.model.data", "search_read",
+            [[("module", "=", self._XMLID_MODULE), ("name", "=", self._xmlid_name(model, external_id))]],
+            {"fields": ["res_id"]},
+        )
+        return rows[0]["res_id"] if rows else None
+
+    def create(self, model: str, values: dict[str, Any]) -> int:
+        values = dict(values)  # don't mutate the caller's dict
+        pieas_id = values.pop("pieas_id", None)
+        new_id = self._execute(model, "create", [values])
+        if pieas_id:
+            self._set_external_id(model, new_id, pieas_id)
+        return new_id
+
+    def write(self, model: str, record_id: int, values: dict[str, Any]) -> bool:
+        if not values:
+            return True
+        return self._execute(model, "write", [[record_id], values])
+
+    def archive(self, model: str, record_id: int) -> bool:
+        """write(model, id, {'active': False}) -- the report's adopted deletion handling."""
+        return self.write(model, record_id, {"active": False})
+
+    def search_read(
+        self,
+        model: str,
+        domain: Optional[list[tuple]] = None,
+        fields: Optional[list[str]] = None,
+    ) -> list[dict]:
+        kwargs: dict[str, Any] = {"fields": fields} if fields else {}
+        return self._execute(model, "search_read", [domain or []], kwargs)
+
+    def read(self, model: str, ids: list[int], fields: Optional[list[str]] = None) -> list[dict]:
+        if not ids:
+            return []
+        kwargs: dict[str, Any] = {"fields": fields} if fields else {}
+        return self._execute(model, "read", [ids], kwargs)

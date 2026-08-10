@@ -50,3 +50,12 @@ DELETION_CYCLE_INTERVAL_SECONDS = 24 * 60 * 60
 
 # Bulk migration pagination size (demonstrates "paginate until exhausted").
 BULK_PAGE_SIZE = 25
+
+# Real OpenEduCat/Odoo instance (local dev build: Odoo 19.0 + OpenEduCat 19.0
+# from source, running on port 8070 -- see odoo-openeducat/ sibling project
+# dir). Used by OdooXmlRpcClient, the real counterpart to the SQLite-backed
+# OpenEduCatClient mock the test suite still runs against.
+ODOO_URL = "http://localhost:8070"
+ODOO_DB = "openeducat_test"
+ODOO_USERNAME = "admin"
+ODOO_PASSWORD = "admin"

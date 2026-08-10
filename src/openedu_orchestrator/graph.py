@@ -38,12 +38,20 @@ def build_pipeline_graph(
     extractor: ExtractorAgent,
     loader: LoaderAgent,
     validator: ValidationAgent | None = None,
+    transform_fn=TransformerAgent.transform,
 ):
     """Build (and compile) the shared sync-pipeline graph.
 
     `validator` is optional per Section 3.4: passing None drops the
     validate_node from the graph entirely rather than turning it into a
     no-op, so the optional-agent boundary is structural, not a runtime flag.
+
+    `transform_fn` defaults to TransformerAgent.transform (the tested,
+    mock-schema-shaped mapping) so existing behavior is unchanged. It's
+    injectable so a different target schema (e.g. real OpenEduCat's actual
+    field names, which differ from the mock's in ways discovered only by
+    testing against a live instance) can be swapped in without touching
+    TransformerAgent or the mock's SQLite schema either one depends on.
     """
 
     def plan_node(state: PipelineState) -> dict:
@@ -88,7 +96,7 @@ def build_pipeline_graph(
                 "pieas_id": c["pieas_id"],
                 "action": c["action"],
                 "openeducat_id": c["openeducat_id"],
-                "fields": TransformerAgent.transform(entity_type, c["source_record"]),
+                "fields": transform_fn(entity_type, c["source_record"]),
             }
             for c in actionable
         ]
@@ -221,6 +229,7 @@ def run_cycle(
     loader: LoaderAgent,
     validator: ValidationAgent | None = None,
     page_size: int = BULK_PAGE_SIZE,
+    transform_fn=TransformerAgent.transform,
 ) -> RunReport:
     """Run one full cycle (bulk / change / deletion) for one entity type and
     return a RunReport summarising what happened. This is the function the
@@ -229,7 +238,7 @@ def run_cycle(
     started_at = datetime.now(timezone.utc)
     watermark_before = orchestrator.get_watermark(entity_type)
 
-    app = build_pipeline_graph(orchestrator, extractor, loader, validator)
+    app = build_pipeline_graph(orchestrator, extractor, loader, validator, transform_fn=transform_fn)
     initial_state: PipelineState = {
         "mode": mode,
         "entity_type": entity_type,
