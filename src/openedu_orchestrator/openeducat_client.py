@@ -17,19 +17,58 @@ else in the pipeline is allowed a connection to this database.
 
 from __future__ import annotations
 
+import http.client
+import socket
 import sqlite3
+import time
 import xmlrpc.client
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from openedu_orchestrator.config import (
     ODOO_DB,
     ODOO_PASSWORD,
     ODOO_URL,
     ODOO_USERNAME,
+    RPC_RETRY_BASE_DELAY_SECONDS,
+    RPC_RETRY_MAX_ATTEMPTS,
     OPENEDUCAT_DB_PATH,
 )
+
+# Transient, network-level failures only -- deliberately excludes
+# xmlrpc.client.Fault, which is Odoo's own application-level error (a
+# rejected write, a validation failure); retrying that would just repeat
+# the same rejection rather than recover from anything.
+_TRANSIENT_RPC_EXCEPTIONS = (
+    ConnectionError,
+    TimeoutError,
+    OSError,
+    socket.error,
+    http.client.HTTPException,
+    xmlrpc.client.ProtocolError,
+)
+
+
+def _call_with_retry(
+    fn: Callable[[], Any],
+    max_attempts: int = RPC_RETRY_MAX_ATTEMPTS,
+    base_delay: float = RPC_RETRY_BASE_DELAY_SECONDS,
+) -> Any:
+    """Exponential backoff (base_delay * 2**attempt) around a single transient
+    RPC call. Attempt count and delay come from config so they can be tuned
+    without touching this logic.
+    """
+    attempt = 0
+    while True:
+        try:
+            return fn()
+        except _TRANSIENT_RPC_EXCEPTIONS:
+            attempt += 1
+            if attempt >= max_attempts:
+                raise
+            time.sleep(base_delay * (2 ** (attempt - 1)))
+
 
 _MODEL_TABLE = {
     "op.student": "op_student",
@@ -238,10 +277,16 @@ class OdooXmlRpcClient:
         `kwargs` as two separate parameters -- they must not be merged into
         one list, or Odoo's ORM receives the kwargs dict as a misplaced
         positional argument (e.g. as `fields` on search_read).
+
+        Wrapped in retry/backoff for transient network failures (see
+        _call_with_retry) -- covers every RPC this client makes (create,
+        write, search_read, read, archive all funnel through here), not
+        just writes, since a dropped connection can hit a read just as
+        easily as a write.
         """
-        return self._models.execute_kw(
+        return _call_with_retry(lambda: self._models.execute_kw(
             self.db, self.uid, self.password, model, method, args or [], kwargs or {}
-        )
+        ))
 
     def close(self) -> None:
         """No persistent connection to close for XML-RPC; kept for interface parity."""

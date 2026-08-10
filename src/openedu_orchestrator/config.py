@@ -59,3 +59,10 @@ ODOO_URL = "http://localhost:8070"
 ODOO_DB = "openeducat_test"
 ODOO_USERNAME = "admin"
 ODOO_PASSWORD = "admin"
+
+# Retry/backoff for OdooXmlRpcClient's RPC calls -- only transient,
+# network-level failures are retried (connection reset, timeout); Odoo
+# application-level errors (xmlrpc.client.Fault, e.g. a validation failure)
+# are never retried since retrying would just repeat the same rejection.
+RPC_RETRY_MAX_ATTEMPTS = 3
+RPC_RETRY_BASE_DELAY_SECONDS = 1.0
