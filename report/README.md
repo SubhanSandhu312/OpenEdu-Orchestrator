@@ -1,7 +1,11 @@
 # Implementation reports
 
-Two revisions, both kept. The older one is **not** superseded in the sense of being wrong —
-it accurately describes the build at the time it was written, and Revision 2 refers back to it.
+**Start here if you just want to understand the project: [`SUMMARY.md`](SUMMARY.md)** — a short,
+plain-language version written for presenting and discussion, not for technical review.
+
+The two files below are the full technical reports. Both revisions are kept. The older one is
+**not** superseded in the sense of being wrong — it accurately describes the build at the time it
+was written, and Revision 2 refers back to it.
 
 | File | Covers | PDF |
 |---|---|---|
