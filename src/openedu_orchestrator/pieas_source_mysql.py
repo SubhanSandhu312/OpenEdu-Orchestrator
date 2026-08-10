@@ -78,13 +78,17 @@ def _iso(dt: datetime) -> str:
 
 
 def _normalize_row(row: dict) -> dict:
-    """pymysql returns real datetime/date objects for DATETIME/DATE columns,
-    not ISO strings the way sqlite3.Row does. Normalize here so this
-    module's row shape is a true drop-in match for pieas_source.py's --
-    downstream code (content_hash, watermark comparisons via
-    datetime.fromisoformat) expects string values, same as the SQLite path.
+    """Two normalizations in one pass:
+    1. pymysql returns real datetime/date objects for DATETIME/DATE
+       columns, not ISO strings the way sqlite3.Row does -- downstream
+       code (content_hash, datetime.fromisoformat) expects strings.
+    2. Rename PIEAS's own primary key column (pieas_id) to the pipeline's
+       generic wire-format key, source_id -- the same convention
+       pieas_source.py and example_univ_source.py follow.
     """
-    return {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in row.items()}
+    out = {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in row.items()}
+    out["source_id"] = out.pop("pieas_id")
+    return out
 
 
 def get_connection(conn_info: Optional[dict] = None) -> pymysql.connections.Connection:
@@ -165,7 +169,7 @@ def insert_course(conn: pymysql.connections.Connection, course: PieasCourse) -> 
     conn.commit()
 
 
-def update_fields(conn: pymysql.connections.Connection, table: str, pieas_id: str, fields: dict) -> None:
+def update_fields(conn: pymysql.connections.Connection, table: str, source_id: str, fields: dict) -> None:
     """Simulate an edit made on the PIEAS website. last_updated bumps via
     MySQL's native ON UPDATE CURRENT_TIMESTAMP(6) -- no explicit trigger
     needed, unlike the SQLite version.
@@ -173,16 +177,16 @@ def update_fields(conn: pymysql.connections.Connection, table: str, pieas_id: st
     if not fields:
         return
     set_clause = ", ".join(f"{col} = %s" for col in fields)
-    params = list(fields.values()) + [pieas_id]
+    params = list(fields.values()) + [source_id]
     with conn.cursor() as cur:
         cur.execute(f"UPDATE {table} SET {set_clause} WHERE pieas_id = %s", params)
     conn.commit()
 
 
-def delete_row(conn: pymysql.connections.Connection, table: str, pieas_id: str) -> None:
+def delete_row(conn: pymysql.connections.Connection, table: str, source_id: str) -> None:
     """Simulate a record being removed from PIEAS -- a real DELETE, no soft-delete."""
     with conn.cursor() as cur:
-        cur.execute(f"DELETE FROM {table} WHERE pieas_id = %s", (pieas_id,))
+        cur.execute(f"DELETE FROM {table} WHERE pieas_id = %s", (source_id,))
     conn.commit()
 
 
@@ -219,9 +223,9 @@ def count_rows(conn: pymysql.connections.Connection, table: str) -> int:
         return cur.fetchone()["n"]
 
 
-def row_by_id(conn: pymysql.connections.Connection, table: str, pieas_id: str) -> Optional[dict]:
+def row_by_id(conn: pymysql.connections.Connection, table: str, source_id: str) -> Optional[dict]:
     with conn.cursor() as cur:
-        cur.execute(f"SELECT * FROM {table} WHERE pieas_id = %s", (pieas_id,))
+        cur.execute(f"SELECT * FROM {table} WHERE pieas_id = %s", (source_id,))
         row = cur.fetchone()
         return _normalize_row(row) if row else None
 

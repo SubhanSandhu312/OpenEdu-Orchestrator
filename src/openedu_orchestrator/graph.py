@@ -93,7 +93,7 @@ def build_pipeline_graph(
         actionable = [c for c in state.get("classified", []) if c["action"] in ("create", "update")]
         transformed = [
             {
-                "pieas_id": c["pieas_id"],
+                "source_id": c["source_id"],
                 "action": c["action"],
                 "openeducat_id": c["openeducat_id"],
                 "fields": transform_fn(entity_type, c["source_record"]),
@@ -106,7 +106,7 @@ def build_pipeline_graph(
         entity_type = state["entity_type"]
         if state["mode"] == "deletion":
             results = [
-                loader.apply(entity_type, "archive", {}, cand["pieas_id"], cand["openeducat_id"])
+                loader.apply(entity_type, "archive", {}, cand["source_id"], cand["openeducat_id"])
                 for cand in state.get("deletion_candidates", [])
             ]
             return {"archive_results": [r.model_dump() for r in results]}
@@ -120,11 +120,11 @@ def build_pipeline_graph(
             archived_ids = [r["openeducat_id"] for r in state.get("archive_results", []) if r["ok"]]
             issues = validator.validate_archives(entity_type, archived_ids)
             return {"validation_issues": issues}
-        transformed_by_pieas_id = {t["pieas_id"]: t for t in state.get("transformed", [])}
+        transformed_by_source_id = {t["source_id"]: t for t in state.get("transformed", [])}
         writes = [
-            {"openeducat_id": r["openeducat_id"], "fields": transformed_by_pieas_id[r["pieas_id"]]["fields"]}
+            {"openeducat_id": r["openeducat_id"], "fields": transformed_by_source_id[r["source_id"]]["fields"]}
             for r in state.get("load_results", [])
-            if r["ok"] and r["pieas_id"] in transformed_by_pieas_id
+            if r["ok"] and r["source_id"] in transformed_by_source_id
         ]
         issues = validator.validate_batch(entity_type, writes)
         return {"validation_issues": state.get("validation_issues", []) + issues}
@@ -170,9 +170,9 @@ def build_pipeline_graph(
                 orchestrator.set_watermark(entity_type, new_max)
                 watermark_running_max_iso = new_max.isoformat()
             page_fetched = len(fetched_records)
-            ok_pieas_ids = {r["pieas_id"] for r in load_results if r["ok"]}
-            page_created = sum(1 for c in classified if c["action"] == "create" and c["pieas_id"] in ok_pieas_ids)
-            page_updated = sum(1 for c in classified if c["action"] == "update" and c["pieas_id"] in ok_pieas_ids)
+            ok_source_ids = {r["source_id"] for r in load_results if r["ok"]}
+            page_created = sum(1 for c in classified if c["action"] == "create" and c["source_id"] in ok_source_ids)
+            page_updated = sum(1 for c in classified if c["action"] == "update" and c["source_id"] in ok_source_ids)
             page_unchanged = sum(1 for c in classified if c["action"] == "unchanged")
 
         update: dict = {

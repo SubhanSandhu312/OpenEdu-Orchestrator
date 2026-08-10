@@ -77,7 +77,7 @@ APPROVED_STUDENT_MAPPING = {
     "entity_type": "student",
     "target_model": "op.student",
     "field_mappings": [
-        {"source_field": "pieas_id", "handling": "external_id"},
+        {"source_field": "source_id", "handling": "external_id"},
         {"source_field": "roll_number", "target_field": "gr_no", "handling": "direct"},
         {"source_field": "first_name", "handling": "direct"},
         {"source_field": "last_name", "handling": "direct"},
@@ -103,7 +103,7 @@ APPROVED_STUDENT_MAPPING = {
 }
 
 SAMPLE_PIEAS_STUDENT = {
-    "pieas_id": "PIEAS-STU-1",
+    "source_id": "PIEAS-STU-1",
     "roll_number": "2024-CS-001",
     "first_name": "Ada",
     "last_name": "Lovelace",
@@ -122,9 +122,9 @@ def test_compile_mapping_matches_real_verified_output():
     # Exactly the shape that was verified live against the real instance:
     # gr_no (not roll_number), gender translated to the single-letter code
     # op.student actually requires, department/batch_year dropped (not
-    # guessed at), pieas_id preserved for the client's external-id handling.
+    # guessed at), source_id preserved for the client's external-id handling.
     assert result == {
-        "pieas_id": "PIEAS-STU-1",
+        "source_id": "PIEAS-STU-1",
         "gr_no": "2024-CS-001",
         "first_name": "Ada",
         "last_name": "Lovelace",

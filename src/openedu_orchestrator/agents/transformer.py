@@ -14,7 +14,7 @@ from typing import Callable
 
 def _map_student(record: dict) -> dict:
     return {
-        "pieas_id": record["pieas_id"],
+        "pieas_id": record["source_id"],  # mock's own schema column; record's key is now generic
         "roll_number": record["roll_number"],
         "first_name": record["first_name"],
         "last_name": record["last_name"],
@@ -29,7 +29,7 @@ def _map_student(record: dict) -> dict:
 
 def _map_faculty(record: dict) -> dict:
     return {
-        "pieas_id": record["pieas_id"],
+        "pieas_id": record["source_id"],  # mock's own schema column; record's key is now generic
         "employee_code": record["employee_code"],
         "first_name": record["first_name"],
         "last_name": record["last_name"],
@@ -42,7 +42,7 @@ def _map_faculty(record: dict) -> dict:
 
 def _map_course(record: dict) -> dict:
     return {
-        "pieas_id": record["pieas_id"],
+        "pieas_id": record["source_id"],  # mock's own schema column; record's key is now generic
         "code": record["code"],
         "name": record["name"],
         "department": record["department"],

@@ -244,11 +244,12 @@ class OdooXmlRpcClient:
         return f"{model.replace('.', '_')}_{external_id}"
 
     def _set_external_id(self, model: str, res_id: int, external_id: str) -> None:
-        """Register a pieas_id -> Odoo record link via Odoo's own external-ID
+        """Register a source_id -> Odoo record link via Odoo's own external-ID
         mechanism (ir.model.data) -- real OpenEduCat models have no field to
         hold a foreign-system key, so this is the standard Odoo-native way to
         track it, discoverable from the Odoo side without depending on our
-        own sync_mapping store.
+        own sync_mapping store. Works identically regardless of which
+        source system the id came from.
         """
         self._execute("ir.model.data", "create", [{
             "module": self._XMLID_MODULE,
@@ -267,22 +268,23 @@ class OdooXmlRpcClient:
 
     def create(self, model: str, values: dict[str, Any]) -> int:
         values = dict(values)  # don't mutate the caller's dict
-        pieas_id = values.pop("pieas_id", None)
+        source_id = values.pop("source_id", None)
         new_id = self._execute(model, "create", [values])
-        if pieas_id:
-            self._set_external_id(model, new_id, pieas_id)
+        if source_id:
+            self._set_external_id(model, new_id, source_id)
         return new_id
 
     def write(self, model: str, record_id: int, values: dict[str, Any]) -> bool:
-        """Same pieas_id handling as create(): the external ID was already
+        """Same source_id handling as create(): the external ID was already
         registered at create time, so on update it's just discarded rather
         than re-registered. Found by a real update failing with 'Invalid
-        field pieas_id' -- create() had this special-case, write() didn't.
+        field pieas_id' (before this was renamed to source_id) -- create()
+        had this special-case, write() didn't.
         """
         if not values:
             return True
         values = dict(values)
-        values.pop("pieas_id", None)
+        values.pop("source_id", None)
         if not values:
             return True
         return self._execute(model, "write", [[record_id], values])

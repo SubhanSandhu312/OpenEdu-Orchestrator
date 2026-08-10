@@ -23,7 +23,7 @@ def test_fetch_page_paginates_in_stable_order(dbs):
     page2 = src.fetch_page(dbs.pieas_conn, "students", limit=5, offset=5)
     page3 = src.fetch_page(dbs.pieas_conn, "students", limit=5, offset=10)
     assert len(page1) == 5 and len(page2) == 5 and len(page3) == 2
-    all_ids = [r["pieas_id"] for r in (*page1, *page2, *page3)]
+    all_ids = [r["source_id"] for r in (*page1, *page2, *page3)]
     assert len(set(all_ids)) == 12  # no overlap, none skipped
 
 

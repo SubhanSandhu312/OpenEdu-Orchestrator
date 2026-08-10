@@ -33,7 +33,7 @@ class PipelineState(TypedDict, total=False):
 
     # Orchestrator classification output
     classified: list[dict]        # ClassifiedRecord.model_dump() for create/update
-    deletion_candidates: list[dict]  # {entity_type, pieas_id, openeducat_id}
+    deletion_candidates: list[dict]  # {entity_type, source_id, openeducat_id}
 
     # Transformer output: same order as `classified`, OpenEduCat-shaped dicts
     transformed: list[dict]

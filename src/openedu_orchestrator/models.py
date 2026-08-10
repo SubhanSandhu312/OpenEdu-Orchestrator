@@ -96,7 +96,8 @@ class ExampleUnivStudent(BaseModel):
 
 class SyncMappingRow(BaseModel):
     id: Optional[int] = None
-    pieas_id: str
+    source_system: str
+    source_id: str
     openeducat_id: int
     entity_type: EntityType
     content_hash: str
@@ -104,10 +105,10 @@ class SyncMappingRow(BaseModel):
 
 
 class ClassifiedRecord(BaseModel):
-    """One PIEAS row plus the Orchestrator's decision about what to do with it."""
+    """One source row plus the Orchestrator's decision about what to do with it."""
 
     entity_type: EntityType
-    pieas_id: str
+    source_id: str
     action: SyncAction
     source_record: dict
     openeducat_id: Optional[int] = None
@@ -116,7 +117,7 @@ class ClassifiedRecord(BaseModel):
 
 class LoadResult(BaseModel):
     entity_type: EntityType
-    pieas_id: str
+    source_id: str
     action: SyncAction
     openeducat_id: int
     ok: bool

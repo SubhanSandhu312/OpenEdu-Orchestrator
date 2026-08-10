@@ -153,25 +153,40 @@ def insert_course(conn: sqlite3.Connection, course: PieasCourse) -> None:
     conn.commit()
 
 
-def update_fields(conn: sqlite3.Connection, table: str, pieas_id: str, fields: dict) -> None:
+def update_fields(conn: sqlite3.Connection, table: str, source_id: str, fields: dict) -> None:
     """Simulate an edit made on the PIEAS website. Bumps last_updated via trigger."""
     if not fields:
         return
     set_clause = ", ".join(f"{col} = ?" for col in fields)
-    params = list(fields.values()) + [pieas_id]
+    params = list(fields.values()) + [source_id]
     conn.execute(f"UPDATE {table} SET {set_clause} WHERE pieas_id = ?", params)
     conn.commit()
 
 
-def delete_row(conn: sqlite3.Connection, table: str, pieas_id: str) -> None:
+def delete_row(conn: sqlite3.Connection, table: str, source_id: str) -> None:
     """Simulate a record being removed from PIEAS -- a real DELETE, no soft-delete."""
-    conn.execute(f"DELETE FROM {table} WHERE pieas_id = ?", (pieas_id,))
+    conn.execute(f"DELETE FROM {table} WHERE pieas_id = ?", (source_id,))
     conn.commit()
 
 
 # --- read paths the Extractor Agent is allowed to call ---------------------
+#
+# Every read function renames PIEAS's own primary key column (pieas_id --
+# a perfectly natural name for PIEAS's own schema) to the pipeline's
+# generic wire-format key, source_id, in its returned dict -- the same
+# convention pieas_source_mysql.py and example_univ_source.py follow, so
+# nothing downstream (Orchestrator, sync_store, graph.py) has a
+# PIEAS-specific assumption left in it. PIEAS's last_updated column
+# already matches the pipeline's generic watermark key name, so no rename
+# is needed there.
 
-def fetch_changed(conn: sqlite3.Connection, table: str, watermark: Optional[datetime]) -> list[sqlite3.Row]:
+def _normalize_row(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["source_id"] = d.pop("pieas_id")
+    return d
+
+
+def fetch_changed(conn: sqlite3.Connection, table: str, watermark: Optional[datetime]) -> list[dict]:
     """WHERE last_updated > :watermark ORDER BY last_updated ASC (Listing 1)."""
     if watermark is None:
         watermark_str = "0000-01-01T00:00:00"
@@ -181,16 +196,16 @@ def fetch_changed(conn: sqlite3.Connection, table: str, watermark: Optional[date
         f"SELECT * FROM {table} WHERE last_updated > ? ORDER BY last_updated ASC",
         (watermark_str,),
     )
-    return cur.fetchall()
+    return [_normalize_row(row) for row in cur.fetchall()]
 
 
-def fetch_page(conn: sqlite3.Connection, table: str, limit: int, offset: int) -> list[sqlite3.Row]:
+def fetch_page(conn: sqlite3.Connection, table: str, limit: int, offset: int) -> list[dict]:
     """Full-table pull, one page at a time, ordered for stable pagination."""
     cur = conn.execute(
         f"SELECT * FROM {table} ORDER BY pieas_id ASC LIMIT ? OFFSET ?",
         (limit, offset),
     )
-    return cur.fetchall()
+    return [_normalize_row(row) for row in cur.fetchall()]
 
 
 def fetch_ids(conn: sqlite3.Connection, table: str) -> list[str]:
@@ -203,9 +218,10 @@ def count_rows(conn: sqlite3.Connection, table: str) -> int:
     return conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
 
 
-def row_by_id(conn: sqlite3.Connection, table: str, pieas_id: str) -> Optional[sqlite3.Row]:
-    cur = conn.execute(f"SELECT * FROM {table} WHERE pieas_id = ?", (pieas_id,))
-    return cur.fetchone()
+def row_by_id(conn: sqlite3.Connection, table: str, source_id: str) -> Optional[dict]:
+    cur = conn.execute(f"SELECT * FROM {table} WHERE pieas_id = ?", (source_id,))
+    row = cur.fetchone()
+    return _normalize_row(row) if row else None
 
 
 def all_pieas_ids(conn: sqlite3.Connection, tables: Iterable[str]) -> dict[str, list[str]]:

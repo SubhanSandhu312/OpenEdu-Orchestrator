@@ -10,7 +10,7 @@ def test_deletion_cycle_archives_removed_record(dbs, agents):
     removed_id = ids[0]
 
     mapping_before = agents.orchestrator._conn.execute(
-        "SELECT openeducat_id FROM sync_mapping WHERE pieas_id = ?", (removed_id,)
+        "SELECT openeducat_id FROM sync_mapping WHERE source_id = ?", (removed_id,)
     ).fetchone()
     assert dbs.oc_client.read("op.student", [mapping_before["openeducat_id"]])[0]["active"] == 1
 

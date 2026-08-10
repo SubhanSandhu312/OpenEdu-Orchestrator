@@ -9,14 +9,11 @@ conventions (see models.ExampleUnivStudent's docstring) -- if the
 mapping-authoring tool and the pipeline both handle this without any
 PIEAS-specific assumption leaking through, the abstraction is real.
 
-Known naming debt, disclosed rather than hidden: the rest of the pipeline
-(orchestrator.classify_records, sync_store, etc.) hardcodes the dict key
-"pieas_id" as the external-id field, from when there was only ever one
-source system. This adapter aliases its own primary key
-(student_ref) to "pieas_id" in every query so the pipeline works
-unmodified -- but the honest name at this point is "source_id", not
-"pieas_id". Renaming that across orchestrator.py/sync_store.py/models.py
-is the next real step in this generalization, not done here.
+Every query aliases its own primary key (student_ref) and watermark
+column (updated_at) to the pipeline's two generic wire-format keys,
+source_id and last_updated -- the same convention pieas_source.py and
+pieas_source_mysql.py follow, so orchestrator.py/sync_store.py/graph.py
+have no source-specific assumption left anywhere in them.
 """
 
 from __future__ import annotations
@@ -54,10 +51,12 @@ BEGIN
 END;
 """
 
-# Every SELECT aliases student_ref AS pieas_id -- see module docstring.
+# Every SELECT aliases the primary key and the watermark timestamp column
+# to the pipeline's two generic wire-format keys (source_id, last_updated)
+# -- see module docstring. Every other field keeps its own natural name.
 _SELECT_COLUMNS = (
-    "student_ref AS pieas_id, given_name, family_name, contact_email, "
-    "sex, dob, major, intake_year, updated_at"
+    "student_ref AS source_id, given_name, family_name, contact_email, "
+    "sex, dob, major, intake_year, updated_at AS last_updated"
 )
 
 
@@ -100,17 +99,17 @@ def insert_student(conn: sqlite3.Connection, student: ExampleUnivStudent) -> Non
     conn.commit()
 
 
-def update_fields(conn: sqlite3.Connection, table: str, pieas_id: str, fields: dict) -> None:
+def update_fields(conn: sqlite3.Connection, table: str, source_id: str, fields: dict) -> None:
     if not fields:
         return
     set_clause = ", ".join(f"{col} = ?" for col in fields)
-    params = list(fields.values()) + [pieas_id]
+    params = list(fields.values()) + [source_id]
     conn.execute(f"UPDATE {table} SET {set_clause} WHERE student_ref = ?", params)
     conn.commit()
 
 
-def delete_row(conn: sqlite3.Connection, table: str, pieas_id: str) -> None:
-    conn.execute(f"DELETE FROM {table} WHERE student_ref = ?", (pieas_id,))
+def delete_row(conn: sqlite3.Connection, table: str, source_id: str) -> None:
+    conn.execute(f"DELETE FROM {table} WHERE student_ref = ?", (source_id,))
     conn.commit()
 
 
@@ -140,7 +139,7 @@ def count_rows(conn: sqlite3.Connection, table: str) -> int:
     return conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
 
 
-def row_by_id(conn: sqlite3.Connection, table: str, pieas_id: str) -> Optional[dict]:
-    cur = conn.execute(f"SELECT {_SELECT_COLUMNS} FROM {table} WHERE student_ref = ?", (pieas_id,))
+def row_by_id(conn: sqlite3.Connection, table: str, source_id: str) -> Optional[dict]:
+    cur = conn.execute(f"SELECT {_SELECT_COLUMNS} FROM {table} WHERE student_ref = ?", (source_id,))
     row = cur.fetchone()
     return dict(row) if row else None

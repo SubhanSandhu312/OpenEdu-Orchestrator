@@ -59,10 +59,9 @@ def test_example_univ_adapter_crud(tmp_path):
 
     assert example_univ_source.count_rows(conn, "students") == 1
     row = example_univ_source.row_by_id(conn, "students", "EXU-00001")
-    # Known naming debt, deliberately: student_ref is aliased to pieas_id
-    # in every query so the rest of the pipeline (which hardcodes that
-    # key) works unmodified -- see example_univ_source.py's docstring.
-    assert row["pieas_id"] == "EXU-00001"
+    # student_ref is aliased to the pipeline's generic wire-format key,
+    # source_id, in every query -- see example_univ_source.py's docstring.
+    assert row["source_id"] == "EXU-00001"
     assert row["given_name"] == "Ada"
 
     example_univ_source.update_fields(conn, "students", "EXU-00001", {"major": "Physics"})

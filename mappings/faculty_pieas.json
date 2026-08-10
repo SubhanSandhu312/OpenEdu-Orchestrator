@@ -3,7 +3,7 @@
   "target_model": "op.faculty",
   "field_mappings": [
     {
-      "source_field": "pieas_id",
+      "source_field": "source_id",
       "target_field": null,
       "handling": "external_id",
       "value_map": null,

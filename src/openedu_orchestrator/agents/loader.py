@@ -42,7 +42,7 @@ class LoaderAgent:
         entity_type: str,
         action: str,
         fields: dict,
-        pieas_id: str,
+        source_id: str,
         openeducat_id: int | None = None,
     ) -> LoadResult:
         model = self._model_for_entity[entity_type]
@@ -50,7 +50,7 @@ class LoaderAgent:
             if action == "create":
                 new_id = self._client.create(model, fields)
                 return LoadResult(
-                    entity_type=entity_type, pieas_id=pieas_id, action=action,
+                    entity_type=entity_type, source_id=source_id, action=action,
                     openeducat_id=new_id, ok=True,
                 )
             if action == "update":
@@ -58,7 +58,7 @@ class LoaderAgent:
                     raise ValueError("update requires an existing openeducat_id")
                 self._client.write(model, openeducat_id, fields)
                 return LoadResult(
-                    entity_type=entity_type, pieas_id=pieas_id, action=action,
+                    entity_type=entity_type, source_id=source_id, action=action,
                     openeducat_id=openeducat_id, ok=True,
                 )
             if action == "archive":
@@ -66,18 +66,18 @@ class LoaderAgent:
                     raise ValueError("archive requires an existing openeducat_id")
                 self._client.archive(model, openeducat_id)
                 return LoadResult(
-                    entity_type=entity_type, pieas_id=pieas_id, action=action,
+                    entity_type=entity_type, source_id=source_id, action=action,
                     openeducat_id=openeducat_id, ok=True,
                 )
             raise ValueError(f"Unknown load action: {action!r}")
         except Exception as exc:  # noqa: BLE001 -- surfaced in RunReport.errors, not swallowed
             return LoadResult(
-                entity_type=entity_type, pieas_id=pieas_id, action=action,
+                entity_type=entity_type, source_id=source_id, action=action,
                 openeducat_id=openeducat_id or -1, ok=False, error=str(exc),
             )
 
     def apply_batch(self, entity_type: str, classified_and_transformed: list[dict]) -> list[LoadResult]:
-        """Each item: {action, pieas_id, openeducat_id, fields}."""
+        """Each item: {action, source_id, openeducat_id, fields}."""
         results = []
         for item in classified_and_transformed:
             results.append(
@@ -85,7 +85,7 @@ class LoaderAgent:
                     entity_type=entity_type,
                     action=item["action"],
                     fields=item.get("fields", {}),
-                    pieas_id=item["pieas_id"],
+                    source_id=item["source_id"],
                     openeducat_id=item.get("openeducat_id"),
                 )
             )

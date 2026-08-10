@@ -41,9 +41,9 @@ def test_update_without_id_fails_gracefully_not_raises(dbs):
 def test_apply_batch_preserves_order(dbs):
     loader = LoaderAgent(dbs.oc_client)
     items = [
-        {"action": "create", "pieas_id": "PIEAS-STU-A", "fields": {"pieas_id": "PIEAS-STU-A", "name": "A"}},
-        {"action": "create", "pieas_id": "PIEAS-STU-B", "fields": {"pieas_id": "PIEAS-STU-B", "name": "B"}},
+        {"action": "create", "source_id": "PIEAS-STU-A", "fields": {"pieas_id": "PIEAS-STU-A", "name": "A"}},
+        {"action": "create", "source_id": "PIEAS-STU-B", "fields": {"pieas_id": "PIEAS-STU-B", "name": "B"}},
     ]
     results = loader.apply_batch("student", items)
-    assert [r.pieas_id for r in results] == ["PIEAS-STU-A", "PIEAS-STU-B"]
+    assert [r.source_id for r in results] == ["PIEAS-STU-A", "PIEAS-STU-B"]
     assert all(r.ok for r in results)

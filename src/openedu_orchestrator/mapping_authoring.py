@@ -202,10 +202,10 @@ def compile_mapping(config: dict) -> Callable[[str, dict], dict]:
                 value = value_map.get(value, value)
             if handling == "external_id":
                 # Matches OdooXmlRpcClient.create()'s special handling: it
-                # pops "pieas_id" out of the values dict itself and
+                # pops "source_id" out of the values dict itself and
                 # registers it via ir.model.data rather than writing it as
                 # a plain field.
-                out["pieas_id"] = value
+                out["source_id"] = value
                 continue
             target_field = fm.get("target_field") or fm["source_field"]
             out[target_field] = value

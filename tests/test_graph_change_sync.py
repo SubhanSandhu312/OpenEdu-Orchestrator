@@ -28,7 +28,7 @@ def test_change_cycle_picks_up_edit_and_new_admission(dbs, agents):
     assert agents.orchestrator.mapping_count("student") == 13
 
     mapping = agents.orchestrator._conn.execute(
-        "SELECT openeducat_id FROM sync_mapping WHERE pieas_id = ?", (edited_id,)
+        "SELECT openeducat_id FROM sync_mapping WHERE source_id = ?", (edited_id,)
     ).fetchone()
     updated_row = dbs.oc_client.read("op.student", [mapping["openeducat_id"]])[0]
     assert updated_row["department"] == "Physics"
