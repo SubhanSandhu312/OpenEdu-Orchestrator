@@ -41,6 +41,8 @@ class PieasFaculty(BaseModel):
     first_name: str
     last_name: str
     email: str
+    gender: str
+    date_of_birth: date
     department: str
     designation: str
     last_updated: datetime

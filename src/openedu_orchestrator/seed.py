@@ -90,6 +90,8 @@ def seed_pieas(
             first_name=fake.first_name(),
             last_name=fake.last_name(),
             email=fake.unique.email(),
+            gender=rng.choice(["male", "female"]),
+            date_of_birth=fake.date_of_birth(minimum_age=28, maximum_age=65),
             department=dept,
             designation=rng.choice(DESIGNATIONS),
             last_updated=_random_past_timestamp(rng),

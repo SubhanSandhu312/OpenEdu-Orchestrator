@@ -1,0 +1,63 @@
+{
+  "entity_type": "faculty",
+  "target_model": "op.faculty",
+  "field_mappings": [
+    {
+      "source_field": "pieas_id",
+      "target_field": null,
+      "handling": "external_id",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "first_name",
+      "target_field": null,
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "last_name",
+      "target_field": null,
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "gender",
+      "target_field": null,
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "date_of_birth",
+      "target_field": "birth_date",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "employee_code",
+      "target_field": "ref",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "designation",
+      "target_field": "function",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "department",
+      "target_field": null,
+      "handling": "unmapped",
+      "value_map": null,
+      "note": "op.faculty has no direct department field; main_department_id is relational (many2one to op.department)."
+    }
+  ],
+  "unmapped_required_target_fields": []
+}

@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS faculty (
     first_name    TEXT NOT NULL,
     last_name     TEXT NOT NULL,
     email         TEXT NOT NULL,
+    gender        TEXT NOT NULL,
+    date_of_birth TEXT NOT NULL,
     department    TEXT NOT NULL,
     designation   TEXT NOT NULL,
     last_updated  TEXT NOT NULL
@@ -125,12 +127,13 @@ def insert_student(conn: sqlite3.Connection, student: PieasStudent) -> None:
 def insert_faculty(conn: sqlite3.Connection, faculty: PieasFaculty) -> None:
     conn.execute(
         """INSERT INTO faculty
-           (pieas_id, employee_code, first_name, last_name, email,
-            department, designation, last_updated)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (pieas_id, employee_code, first_name, last_name, email, gender,
+            date_of_birth, department, designation, last_updated)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             faculty.pieas_id, faculty.employee_code, faculty.first_name,
-            faculty.last_name, faculty.email, faculty.department,
+            faculty.last_name, faculty.email, faculty.gender,
+            faculty.date_of_birth.isoformat(), faculty.department,
             faculty.designation, _iso(faculty.last_updated),
         ),
     )
