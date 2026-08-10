@@ -105,18 +105,40 @@ surfaced automatically, instead of discovered by a failed live write).
   real-target mapping** (the one that successfully migrated 60 students to
   the live instance) as a golden-output regression test.
 
-**Implemented, not yet run live** (`_call_llm` in `mapping_authoring.py`):
+**Implemented, blocked on a quota issue, not project code** (`_call_llm` in
+`mapping_authoring.py`):
 - Calls Google Gemini (`gemini-2.0-flash`) with structured output
   (`response_schema=MappingProposal`) -- a free-tier provider, deliberately
   chosen over a paid one since this runs once per source system, not per
-  record, so quota is a non-issue. Requires `GEMINI_API_KEY` (free, no
-  credit card, from https://aistudio.google.com/apikey) in the
+  record, so quota is a non-issue in principle. Requires `GEMINI_API_KEY`
+  (free, no credit card, from https://aistudio.google.com/apikey) in the
   environment; raises a clear `RuntimeError` pointing here if it's unset.
-  No key has been provided in this environment yet, so the call itself is
-  implemented and schema-verified but not yet exercised against a live
-  response -- next step is running it for real and evaluating the output
-  against `mappings/student_pieas.json` / `mappings/course_pieas.json` as
-  ground truth (see Testing strategy below).
+- **First live attempt (2026-08-10) hit a real bug this exposed**: the
+  original `value_map: dict[str, str]` field on `FieldMappingEntry`
+  generates a JSON schema using `additionalProperties`, which Gemini's
+  free Developer API structured-output mode rejects outright
+  (`ValueError: additionalProperties is only supported in Gemini
+  Enterprise Agent Platform mode`). Fixed by changing `value_map` to a
+  list of explicit `ValueMapEntry(source_value, target_value)` pairs
+  instead of a free-form dict -- confirmed the resulting schema no longer
+  contains `additionalProperties` before retrying. This was a genuine
+  schema-compatibility bug caught by an actual API call, not a
+  hypothetical.
+- **After that fix, hit a second, different issue**: every model on the
+  provided key returns `429 RESOURCE_EXHAUSTED`,
+  `generate_content_free_tier_requests`, **limit: 0** -- not a used-up
+  quota, a zero allocation. Confirmed this isn't model-specific (tried
+  `gemini-2.0-flash` and `gemini-2.0-flash-lite`, same result) and isn't a
+  listing/auth problem (`client.models.list()` succeeds and returns 40+
+  available models). This is an account/regional constraint on Google's
+  side, not something fixable in this codebase. Two live hypotheses,
+  unconfirmed: the free tier isn't available in this account's region, or
+  the key is too new for its free-tier allocation to have propagated yet.
+  **Status: waiting to retry** -- rerunning is a single command once the
+  key's quota is confirmed active (see the propose_mapping test invocation
+  in this doc's history / session notes). If it's still 0 after a longer
+  wait, the fallback is Groq (broader historical regional availability) or
+  a fully local Ollama model -- both already scoped as alternatives.
 
 ## Review/approval workflow
 

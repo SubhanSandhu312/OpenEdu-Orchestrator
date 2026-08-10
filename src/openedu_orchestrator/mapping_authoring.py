@@ -192,7 +192,7 @@ def compile_mapping(config: dict) -> Callable[[str, dict], dict]:
                 continue
             value = record.get(fm["source_field"])
             if handling == "value_map":
-                value_map = fm.get("value_map") or {}
+                value_map = {e["source_value"]: e["target_value"] for e in (fm.get("value_map") or [])}
                 value = value_map.get(value, value)
             if handling == "external_id":
                 # Matches OdooXmlRpcClient.create()'s special handling: it

@@ -97,6 +97,11 @@ class LoadResult(BaseModel):
 FieldHandling = Literal["direct", "value_map", "external_id", "unmapped"]
 
 
+class ValueMapEntry(BaseModel):
+    source_value: str
+    target_value: str
+
+
 class FieldMappingEntry(BaseModel):
     """One source field's disposition when mapping into a real target schema.
 
@@ -107,12 +112,18 @@ class FieldMappingEntry(BaseModel):
     `unmapped`: flagged, not guessed -- either no target equivalent exists,
     or the target field is relational (needs FK/linking logic, not a value
     mapping). `note` should say which.
+
+    `value_map` is a list of explicit (source_value, target_value) pairs,
+    not a plain dict -- Gemini's free Developer API structured-output mode
+    rejects JSON schemas using `additionalProperties` (the schema a plain
+    `dict[str, str]` field generates), found by an actual live API call,
+    not anticipated in advance.
     """
 
     source_field: str
     target_field: Optional[str] = None
     handling: FieldHandling = "direct"
-    value_map: Optional[dict[str, str]] = None
+    value_map: Optional[list[ValueMapEntry]] = None
     note: Optional[str] = None
 
 

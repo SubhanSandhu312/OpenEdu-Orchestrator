@@ -34,10 +34,16 @@
       "source_field": "gender",
       "target_field": "gender",
       "handling": "value_map",
-      "value_map": {
-        "male": "m",
-        "female": "f"
-      },
+      "value_map": [
+        {
+          "source_value": "male",
+          "target_value": "m"
+        },
+        {
+          "source_value": "female",
+          "target_value": "f"
+        }
+      ],
       "note": null
     },
     {

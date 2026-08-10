@@ -83,7 +83,10 @@ APPROVED_STUDENT_MAPPING = {
         {"source_field": "last_name", "handling": "direct"},
         {
             "source_field": "gender", "target_field": "gender", "handling": "value_map",
-            "value_map": {"male": "m", "female": "f"},
+            "value_map": [
+                {"source_value": "male", "target_value": "m"},
+                {"source_value": "female", "target_value": "f"},
+            ],
         },
         {"source_field": "date_of_birth", "target_field": "birth_date", "handling": "direct"},
         {
