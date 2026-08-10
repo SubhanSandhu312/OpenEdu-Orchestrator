@@ -274,6 +274,15 @@ class OdooXmlRpcClient:
         return new_id
 
     def write(self, model: str, record_id: int, values: dict[str, Any]) -> bool:
+        """Same pieas_id handling as create(): the external ID was already
+        registered at create time, so on update it's just discarded rather
+        than re-registered. Found by a real update failing with 'Invalid
+        field pieas_id' -- create() had this special-case, write() didn't.
+        """
+        if not values:
+            return True
+        values = dict(values)
+        values.pop("pieas_id", None)
         if not values:
             return True
         return self._execute(model, "write", [[record_id], values])
