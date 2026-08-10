@@ -17,9 +17,21 @@ from openedu_orchestrator.openeducat_client import OpenEduCatClient
 
 
 class LoaderAgent:
-    def __init__(self, client: OpenEduCatClient | None = None, db_path: Path = OPENEDUCAT_DB_PATH):
+    def __init__(
+        self,
+        client: OpenEduCatClient | None = None,
+        db_path: Path = OPENEDUCAT_DB_PATH,
+        model_for_entity: dict | None = None,
+    ):
         self._client = client or OpenEduCatClient(db_path)
         self._owns_client = client is None
+        # Defaults to the shared entity->model map (what the mock's
+        # SQLite tables are keyed by, and what the tests assume) so
+        # nothing changes unless explicitly overridden -- needed because
+        # PIEAS's "courses" turned out to map onto real op.subject, not
+        # op.course, but the mock target still uses op.course and must
+        # stay untouched.
+        self._model_for_entity = model_for_entity or OPENEDUCAT_MODEL_FOR_ENTITY
 
     def close(self) -> None:
         if self._owns_client:
@@ -33,7 +45,7 @@ class LoaderAgent:
         pieas_id: str,
         openeducat_id: int | None = None,
     ) -> LoadResult:
-        model = OPENEDUCAT_MODEL_FOR_ENTITY[entity_type]
+        model = self._model_for_entity[entity_type]
         try:
             if action == "create":
                 new_id = self._client.create(model, fields)
@@ -81,6 +93,6 @@ class LoaderAgent:
 
     def read_back(self, entity_type: str, openeducat_id: int) -> dict | None:
         """Used by the optional Validation Agent -- re-reads a record after a write."""
-        model = OPENEDUCAT_MODEL_FOR_ENTITY[entity_type]
+        model = self._model_for_entity[entity_type]
         rows = self._client.read(model, [openeducat_id])
         return rows[0] if rows else None
