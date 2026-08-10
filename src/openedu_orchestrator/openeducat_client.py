@@ -87,6 +87,7 @@ _MODEL_TABLE = {
     "op.student": "op_student",
     "op.faculty": "op_faculty",
     "op.course": "op_course",
+    "op.exam.attendees": "op_exam_attendees",
 }
 
 _SCHEMA = """
@@ -130,6 +131,25 @@ CREATE TABLE IF NOT EXISTS op_course (
     department    TEXT,
     credit_hours  INTEGER,
     semester      TEXT,
+    active        INTEGER NOT NULL DEFAULT 1,
+    create_date   TEXT NOT NULL,
+    write_date    TEXT NOT NULL
+);
+
+-- Flattened stand-in for real op.exam.attendees. The real model reaches its
+-- student and exam through many2one ids resolved from external IDs; the mock
+-- keeps the source references as plain text, because reproducing Odoo's
+-- relational graph here would make the test double harder to reason about
+-- without testing anything the real target does not already cover.
+CREATE TABLE IF NOT EXISTS op_exam_attendees (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    pieas_id      TEXT UNIQUE,
+    student_ref   TEXT,
+    subject_ref   TEXT,
+    exam_name     TEXT,
+    marks         INTEGER,
+    total_marks   INTEGER,
+    status        TEXT,
     active        INTEGER NOT NULL DEFAULT 1,
     create_date   TEXT NOT NULL,
     write_date    TEXT NOT NULL

@@ -26,7 +26,7 @@ from typing import Any, Iterable, Optional
 import pymysql
 import pymysql.cursors
 
-from openedu_orchestrator.models import PieasCourse, PieasFaculty, PieasStudent
+from openedu_orchestrator.models import PieasCourse, PieasFaculty, PieasMark, PieasStudent
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS students (
@@ -66,6 +66,19 @@ CREATE TABLE IF NOT EXISTS courses (
     semester      VARCHAR(16) NOT NULL,
     last_updated  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     INDEX idx_courses_last_updated (last_updated)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS marks (
+    pieas_id         VARCHAR(32) PRIMARY KEY,
+    student_pieas_id VARCHAR(32) NOT NULL,
+    course_pieas_id  VARCHAR(32) NOT NULL,
+    exam_name        VARCHAR(64) NOT NULL,
+    marks_obtained   INT NOT NULL,
+    total_marks      INT NOT NULL,
+    last_updated     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    INDEX idx_marks_last_updated (last_updated),
+    FOREIGN KEY (student_pieas_id) REFERENCES students(pieas_id) ON DELETE CASCADE,
+    FOREIGN KEY (course_pieas_id) REFERENCES courses(pieas_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 """
 
@@ -173,6 +186,21 @@ def insert_course(conn: pymysql.connections.Connection, course: PieasCourse) -> 
             (
                 course.pieas_id, course.code, course.name, course.department,
                 course.credit_hours, course.semester, _iso(course.last_updated),
+            ),
+        )
+    conn.commit()
+
+
+def insert_mark(conn: pymysql.connections.Connection, mark: PieasMark) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO marks
+               (pieas_id, student_pieas_id, course_pieas_id, exam_name,
+                marks_obtained, total_marks, last_updated)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (
+                mark.pieas_id, mark.student_pieas_id, mark.course_pieas_id,
+                mark.exam_name, mark.marks_obtained, mark.total_marks, _iso(mark.last_updated),
             ),
         )
     conn.commit()

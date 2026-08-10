@@ -125,7 +125,13 @@ def seed(source: str, students: int, faculty: int, courses: int, seed: int, full
     source_module = SOURCE_MODULES[source]
     conn_info = PIEAS_DB_PATH if source == "pieas" else None
     conn = source_module.reset_database(conn_info)
-    counts = seed_pieas(conn, students, faculty, courses, seed, source=source_module)
+    # Keyword args deliberately: this was positional, and adding a parameter
+    # to seed_pieas silently shifted `seed` into it -- producing ~1200 marks
+    # instead of ~90 with no error anywhere.
+    counts = seed_pieas(
+        conn, num_students=students, num_faculty=faculty, num_courses=courses,
+        seed=seed, source=source_module,
+    )
     conn.close()
     console.print(f"[green]Seeded PIEAS ({source})[/green]: {counts}")
     if full_reset:
@@ -192,7 +198,7 @@ def deletion_check(source: str, target: str, entity: str):
 
 @cli.command()
 @_SOURCE_OPTION
-@click.option("--entity", type=click.Choice(["student", "faculty", "course"]), default="student")
+@click.option("--entity", type=click.Choice(["student", "faculty", "course", "mark"]), default="student")
 @click.option("--update", "n_update", default=3, show_default=True, help="Rows to edit.")
 @click.option("--insert", "n_insert", default=2, show_default=True, help="New rows to add.")
 @click.option("--delete", "n_delete", default=1, show_default=True, help="Rows to remove.")
@@ -217,6 +223,10 @@ def mutate(source: str, entity: str, n_update: int, n_insert: int, n_delete: int
         elif entity == "faculty":
             source_module.update_fields(conn, table, source_id, {"designation": rng.choice(
                 ["Lecturer", "Assistant Professor", "Associate Professor", "Professor"])})
+        elif entity == "mark":
+            # The report's own worked example of an ongoing change:
+            # "a quiz mark is updated" (Section 2).
+            source_module.update_fields(conn, table, source_id, {"marks_obtained": rng.randint(0, 10)})
         else:
             source_module.update_fields(conn, table, source_id, {"credit_hours": rng.choice([2, 3, 4])})
         updated.append(source_id)

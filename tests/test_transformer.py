@@ -60,3 +60,16 @@ def test_transform_is_pure_and_order_independent():
     first = TransformerAgent.transform("course", record)
     second = TransformerAgent.transform("course", record)
     assert first == second
+
+
+def test_transform_mark_maps_relational_refs_as_plain_text_for_the_mock():
+    from openedu_orchestrator.agents.transformer import TransformerAgent
+
+    out = TransformerAgent.transform("mark", {
+        "source_id": "PIEAS-MRK-1", "student_pieas_id": "PIEAS-STU-1",
+        "course_pieas_id": "PIEAS-CRS-1", "exam_name": "Midterm",
+        "marks_obtained": 37, "total_marks": 50, "last_updated": "2026-01-01T00:00:00",
+    })
+    assert out["student_ref"] == "PIEAS-STU-1"
+    assert out["marks"] == 37 and out["total_marks"] == 50
+    assert out["status"] == "present"

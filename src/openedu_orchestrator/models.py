@@ -13,7 +13,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-EntityType = Literal["student", "faculty", "course"]
+EntityType = Literal["student", "faculty", "course", "mark"]
 SyncAction = Literal["create", "update", "unchanged", "archive"]
 SyncMode = Literal["bulk", "change", "deletion"]
 
@@ -60,10 +60,34 @@ class PieasCourse(BaseModel):
     last_updated: datetime
 
 
+class PieasMark(BaseModel):
+    """An exam/quiz mark -- the report's own worked example of an ongoing
+    change ("a quiz mark is updated", Section 2).
+
+    Unlike the other three, this is a *relational* record: it is meaningless
+    without the student and the subject it points at, both of which must
+    already exist on the target before it can be written. That dependency is
+    why ENTITY_TYPES is an ordered tuple with "mark" last, and why the
+    reference resolver raises a clear error rather than writing a dangling
+    foreign key (see real_target_reference_data._exam_attendee_references).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    pieas_id: str
+    student_pieas_id: str
+    course_pieas_id: str
+    exam_name: str
+    marks_obtained: int
+    total_marks: int
+    last_updated: datetime
+
+
 PIEAS_MODEL_FOR_ENTITY: dict[str, type[BaseModel]] = {
     "student": PieasStudent,
     "faculty": PieasFaculty,
     "course": PieasCourse,
+    "mark": PieasMark,
 }
 
 

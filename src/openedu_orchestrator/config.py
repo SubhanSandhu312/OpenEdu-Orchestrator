@@ -30,18 +30,25 @@ SYNC_STORE_DB_PATH = DATA_DIR / "orchestrator_state.db"
 
 # Entity types the pipeline knows how to move. Each maps a PIEAS table to an
 # OpenEduCat model.
-ENTITY_TYPES = ("student", "faculty", "course")
+# ORDER IS SIGNIFICANT. "mark" is a relational record pointing at a student
+# and a subject, so both must already exist on the target before it can be
+# written. `--entity all` iterates this tuple in order, which is what makes
+# a full sync work in one pass. The first three are independent of each
+# other and could be in any order among themselves; "mark" must come last.
+ENTITY_TYPES = ("student", "faculty", "course", "mark")
 
 PIEAS_TABLE_FOR_ENTITY = {
     "student": "students",
     "faculty": "faculty",
     "course": "courses",
+    "mark": "marks",
 }
 
 OPENEDUCAT_MODEL_FOR_ENTITY = {
     "student": "op.student",
     "faculty": "op.faculty",
     "course": "op.course",
+    "mark": "op.exam.attendees",
 }
 
 # Incremental sync scheduling (informational for the CLI's --loop mode; the

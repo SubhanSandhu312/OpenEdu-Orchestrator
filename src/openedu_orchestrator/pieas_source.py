@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from openedu_orchestrator.config import PIEAS_DB_PATH, PIEAS_TABLE_FOR_ENTITY
-from openedu_orchestrator.models import PieasCourse, PieasFaculty, PieasStudent
+from openedu_orchestrator.models import PieasCourse, PieasFaculty, PieasMark, PieasStudent
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS students (
@@ -57,9 +57,24 @@ CREATE TABLE IF NOT EXISTS courses (
     last_updated  TEXT NOT NULL
 );
 
+-- A mark belongs to a student and a course. Foreign keys are declared (and
+-- PRAGMA foreign_keys is ON) so that deleting a student really does remove
+-- their marks, the way a real system would -- which in turn means the
+-- deletion cycle sees the marks disappear too.
+CREATE TABLE IF NOT EXISTS marks (
+    pieas_id         TEXT PRIMARY KEY,
+    student_pieas_id TEXT NOT NULL REFERENCES students(pieas_id) ON DELETE CASCADE,
+    course_pieas_id  TEXT NOT NULL REFERENCES courses(pieas_id) ON DELETE CASCADE,
+    exam_name        TEXT NOT NULL,
+    marks_obtained   INTEGER NOT NULL,
+    total_marks      INTEGER NOT NULL,
+    last_updated     TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_students_last_updated ON students(last_updated);
 CREATE INDEX IF NOT EXISTS idx_faculty_last_updated ON faculty(last_updated);
 CREATE INDEX IF NOT EXISTS idx_courses_last_updated ON courses(last_updated);
+CREATE INDEX IF NOT EXISTS idx_marks_last_updated ON marks(last_updated);
 """
 
 # One trigger per table: if an UPDATE statement did not itself set
@@ -148,6 +163,20 @@ def insert_course(conn: sqlite3.Connection, course: PieasCourse) -> None:
         (
             course.pieas_id, course.code, course.name, course.department,
             course.credit_hours, course.semester, _iso(course.last_updated),
+        ),
+    )
+    conn.commit()
+
+
+def insert_mark(conn: sqlite3.Connection, mark: PieasMark) -> None:
+    conn.execute(
+        """INSERT INTO marks
+           (pieas_id, student_pieas_id, course_pieas_id, exam_name,
+            marks_obtained, total_marks, last_updated)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            mark.pieas_id, mark.student_pieas_id, mark.course_pieas_id,
+            mark.exam_name, mark.marks_obtained, mark.total_marks, _iso(mark.last_updated),
         ),
     )
     conn.commit()

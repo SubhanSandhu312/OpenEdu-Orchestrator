@@ -51,10 +51,28 @@ def _map_course(record: dict) -> dict:
     }
 
 
+def _map_mark(record: dict) -> dict:
+    """The mock target keeps the student/subject references as plain text
+    rather than resolving them to ids -- see op_exam_attendees' schema
+    comment. Against the real target these become "reference" sentinels
+    resolved to real many2one ids instead (mappings/mark_pieas.json).
+    """
+    return {
+        "pieas_id": record["source_id"],  # mock's own schema column; record's key is generic
+        "student_ref": record["student_pieas_id"],
+        "subject_ref": record["course_pieas_id"],
+        "exam_name": record["exam_name"],
+        "marks": record["marks_obtained"],
+        "total_marks": record["total_marks"],
+        "status": "present",
+    }
+
+
 _MAPPERS: dict[str, Callable[[dict], dict]] = {
     "student": _map_student,
     "faculty": _map_faculty,
     "course": _map_course,
+    "mark": _map_mark,
 }
 
 

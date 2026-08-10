@@ -1,0 +1,58 @@
+{
+  "entity_type": "mark",
+  "target_model": "op.exam.attendees",
+  "field_mappings": [
+    {
+      "source_field": "source_id",
+      "target_field": null,
+      "handling": "external_id",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "student_pieas_id",
+      "target_field": "student",
+      "handling": "reference",
+      "value_map": null,
+      "note": "Resolved to op.student's real id via the ir.model.data external ID the pipeline registered when it synced that student. Fails loudly if the student has not been synced yet."
+    },
+    {
+      "source_field": "course_pieas_id",
+      "target_field": "subject",
+      "handling": "reference",
+      "value_map": null,
+      "note": "Resolved to op.subject's real id via its external ID, then combined with exam_name/total_marks to get-or-create the shared op.exam record."
+    },
+    {
+      "source_field": "exam_name",
+      "target_field": "exam_name",
+      "handling": "reference",
+      "value_map": null,
+      "note": "Not a field on op.exam.attendees. Identifies which shared op.exam this mark belongs to."
+    },
+    {
+      "source_field": "total_marks",
+      "target_field": "total_marks",
+      "handling": "reference",
+      "value_map": null,
+      "note": "Lives on op.exam, not on the attendee row -- the paper is out of 50 regardless of who sat it."
+    },
+    {
+      "source_field": "marks_obtained",
+      "target_field": "marks",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    }
+  ],
+  "unmapped_required_target_fields": [
+    {
+      "target_field": "status",
+      "target_label": "Status",
+      "note": "Required selection (present/absent). PIEAS records a mark but not attendance, so 'present' is assumed -- a mark implies the student sat the paper. Disclosed assumption, set by the compiled default below rather than fabricated per record."
+    }
+  ],
+  "constant_fields": {
+    "status": "present"
+  }
+}

@@ -190,9 +190,17 @@ def compile_mapping(config: dict) -> Callable[[str, dict], dict]:
     static config.
     """
     field_mappings = config["field_mappings"]
+    # Deliberately NOT part of MappingProposal (the LLM's output schema).
+    # The tool's job is to *report* a required target field it has no source
+    # for, under unmapped_required_target_fields; deciding what constant to
+    # put there instead is a human review decision, so it is only ever added
+    # to an approved mapping by hand. Keeping it out of the proposal schema
+    # is what stops the model from quietly inventing values -- the project's
+    # standing "never fabricate data" rule.
+    constant_fields = config.get("constant_fields") or {}
 
     def _transform(entity_type: str, record: dict) -> dict:
-        out: dict[str, Any] = {}
+        out: dict[str, Any] = dict(constant_fields)
         for fm in field_mappings:
             handling = fm.get("handling", "direct")
             if handling == "unmapped":
@@ -221,7 +229,13 @@ def compile_mapping(config: dict) -> Callable[[str, dict], dict]:
                 # report's Section 3.3 requirement for the Transformer).
                 # OdooXmlRpcClient pops these and resolves them -- see
                 # real_target_reference_data.py.
-                out[f"{REFERENCE_PREFIX}{fm['source_field']}"] = value
+                # Named by target_field when given, falling back to
+                # source_field -- same rule as "direct" below. The name is
+                # what the resolver dispatches on, so a mapping can call
+                # student_pieas_id "student" without the resolver needing to
+                # know any particular source's column naming.
+                ref_name = fm.get("target_field") or fm["source_field"]
+                out[f"{REFERENCE_PREFIX}{ref_name}"] = value
                 continue
             target_field = fm.get("target_field") or fm["source_field"]
             out[target_field] = value

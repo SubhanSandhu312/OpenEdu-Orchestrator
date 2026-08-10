@@ -136,3 +136,40 @@ def test_validator_treats_reference_sentinels_as_client_internal():
     assert _is_client_sentinel("__ref__department") is True
     assert _is_client_sentinel("source_id") is True
     assert _is_client_sentinel("first_name") is False
+
+
+def test_compiled_mark_mapping_names_references_by_target_field():
+    """The resolver dispatches on the reference *name*, so a mapping must be
+    able to call student_pieas_id "student" -- otherwise the resolver would
+    have to know each source's column naming, defeating the generalisation.
+    Found by a live run where the sentinels came through as
+    __ref__student_pieas_id and the resolver saw None.
+    """
+    from pathlib import Path
+    from openedu_orchestrator import mapping_authoring as ma
+
+    fn = ma.compile_mapping(ma.load_mapping(Path("mappings/mark_pieas.json")))
+    out = fn("mark", {
+        "source_id": "PIEAS-MRK-1", "student_pieas_id": "PIEAS-STU-1",
+        "course_pieas_id": "PIEAS-CRS-1", "exam_name": "Midterm",
+        "marks_obtained": 37, "total_marks": 50,
+    })
+    assert out["__ref__student"] == "PIEAS-STU-1"
+    assert out["__ref__subject"] == "PIEAS-CRS-1"
+    assert out["marks"] == 37
+
+
+def test_compiled_mapping_applies_human_approved_constants():
+    """op.exam.attendees.status is required with no source equivalent. The
+    constant is a human review decision recorded in the approved mapping,
+    never something the LLM proposal schema can invent.
+    """
+    from pathlib import Path
+    from openedu_orchestrator import mapping_authoring as ma
+
+    fn = ma.compile_mapping(ma.load_mapping(Path("mappings/mark_pieas.json")))
+    out = fn("mark", {
+        "source_id": "M1", "student_pieas_id": "S1", "course_pieas_id": "C1",
+        "exam_name": "Final", "marks_obtained": 1, "total_marks": 10,
+    })
+    assert out["status"] == "present"

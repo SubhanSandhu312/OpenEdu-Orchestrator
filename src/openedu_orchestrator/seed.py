@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from faker import Faker
 
-from openedu_orchestrator.models import PieasCourse, PieasFaculty, PieasStudent
+from openedu_orchestrator.models import PieasCourse, PieasFaculty, PieasMark, PieasStudent
 from openedu_orchestrator import pieas_source as _default_source
 
 DEPARTMENTS = [
@@ -60,6 +60,7 @@ def seed_pieas(
     num_courses: int = 14,
     seed: int = 42,
     source=_default_source,
+    marks_per_student: int = 3,
 ) -> dict[str, int]:
     """`source` defaults to the SQLite-backed pieas_source module -- pass
     pieas_source_mysql to seed a real MySQL-backed PIEAS instead. Same
@@ -129,4 +130,27 @@ def seed_pieas(
         )
         insert_course(conn, course)
 
-    return {"student": num_students, "faculty": num_faculty, "course": num_courses}
+    # Marks last: each one points at a student and a course that must
+    # already exist (both source tables declare real foreign keys), which
+    # mirrors the same ordering constraint the sync itself has.
+    insert_mark = source.insert_mark
+    exam_names = ["Quiz 1", "Quiz 2", "Midterm", "Final"]
+    mark_number = 0
+    for student_index in range(1, num_students + 1):
+        for _ in range(rng.randint(0, marks_per_student)):
+            mark_number += 1
+            total = rng.choice([10, 20, 50, 100])
+            insert_mark(conn, PieasMark(
+                pieas_id=f"PIEAS-MRK-{mark_number:06d}",
+                student_pieas_id=f"PIEAS-STU-{student_index:05d}",
+                course_pieas_id=f"PIEAS-CRS-{rng.randint(1, num_courses):05d}",
+                exam_name=rng.choice(exam_names),
+                marks_obtained=rng.randint(0, total),
+                total_marks=total,
+                last_updated=_random_past_timestamp(rng),
+            ))
+
+    return {
+        "student": num_students, "faculty": num_faculty,
+        "course": num_courses, "mark": mark_number,
+    }
