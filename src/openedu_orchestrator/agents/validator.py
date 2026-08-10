@@ -20,6 +20,22 @@ class ValidationAgent:
     def __init__(self, loader: LoaderAgent):
         self._loader = loader
 
+    @staticmethod
+    def _matches(expected, actual) -> bool:
+        """A cleared field is written as None but reads back as False.
+
+        OdooXmlRpcClient._marshal_values converts None -> False on the way
+        out, because XML-RPC cannot serialise None and False is Odoo's own
+        canonical empty value. So clearing a field and then reading it back
+        legitimately returns False where None was sent. Those are the same
+        value expressed on two sides of a boundary, not a mismatch --
+        without this, every field-clearing write would report a spurious
+        validation issue.
+        """
+        if expected is None and actual is False:
+            return True
+        return actual == expected
+
     def validate_write(self, entity_type: str, openeducat_id: int, expected_fields: dict) -> str | None:
         actual = self._loader.read_back(entity_type, openeducat_id)
         if actual is None:
@@ -34,7 +50,7 @@ class ValidationAgent:
         mismatches = [
             f"{field}=expected {value!r}, got {actual.get(field)!r}"
             for field, value in expected_fields.items()
-            if field != "source_id" and actual.get(field) != value
+            if field != "source_id" and not self._matches(value, actual.get(field))
         ]
         if mismatches:
             return f"{entity_type}/{openeducat_id}: " + "; ".join(mismatches)

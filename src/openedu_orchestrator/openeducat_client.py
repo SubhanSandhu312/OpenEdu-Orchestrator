@@ -331,10 +331,35 @@ class OdooXmlRpcClient:
         )
         return rows[0]["res_id"] if rows else None
 
+    @staticmethod
+    def _marshal_values(values: dict[str, Any]) -> dict[str, Any]:
+        """Convert Python None to Odoo's False before it reaches XML-RPC.
+
+        Two separate reasons, and both matter:
+
+        1. xmlrpc.client literally cannot serialise None unless the proxy is
+           built with allow_none=True -- it raises
+           "TypeError: cannot marshal None unless allow_none is enabled"
+           before the request is even sent. So a source field that has been
+           cleared to NULL would fail the whole write rather than clear the
+           target field.
+        2. False is Odoo's own canonical "empty" across field types: it
+           blanks a Char/Text, unlinks a Many2one, and zeroes an Integer.
+           Sending False is therefore the correct way to express "this field
+           now has no value", which is exactly what a cleared source field
+           means under source-is-authoritative semantics.
+
+        Note this deliberately does NOT use allow_none=True on the proxy.
+        That would send XML-RPC's <nil/> extension, which Odoo maps to a
+        Python None the ORM treats inconsistently across field types --
+        False is what Odoo itself uses internally, so it is what we send.
+        """
+        return {k: (False if v is None else v) for k, v in values.items()}
+
     def create(self, model: str, values: dict[str, Any]) -> int:
         values = dict(values)  # don't mutate the caller's dict
         source_id = values.pop("source_id", None)
-        new_id = self._execute(model, "create", [values])
+        new_id = self._execute(model, "create", [self._marshal_values(values)])
         if source_id:
             self._set_external_id(model, new_id, source_id)
         return new_id
@@ -352,7 +377,7 @@ class OdooXmlRpcClient:
         values.pop("source_id", None)
         if not values:
             return True
-        return self._execute(model, "write", [[record_id], values])
+        return self._execute(model, "write", [[record_id], self._marshal_values(values)])
 
     def archive(self, model: str, record_id: int) -> bool:
         """write(model, id, {'active': False}) -- the report's adopted deletion handling."""

@@ -43,3 +43,31 @@ def test_validate_archive_flags_still_active(dbs):
     result = loader.apply("student", "create", {"pieas_id": "PIEAS-STU-X", "name": "X"}, "PIEAS-STU-X")
     issue = validator.validate_archive("student", result.openeducat_id)
     assert issue is not None
+
+
+def test_cleared_field_written_as_none_reads_back_as_false_is_not_a_mismatch(dbs):
+    """OdooXmlRpcClient marshals None -> False (XML-RPC cannot send None, and
+    False is Odoo's own empty value), so a cleared field legitimately reads
+    back as False. Without this the fix for field-clearing would make every
+    such write report a spurious validation issue.
+    """
+    loader = LoaderAgent(dbs.oc_client)
+    validator = ValidationAgent(loader)
+    assert validator._matches(None, False) is True
+
+
+def test_none_still_matches_none():
+    assert ValidationAgent._matches(None, None) is True
+
+
+def test_none_expected_does_not_excuse_a_real_value():
+    """None/False equivalence must not degrade into "None matches anything"."""
+    assert ValidationAgent._matches(None, "Richard") is False
+
+
+def test_real_mismatch_still_flagged_after_none_false_allowance(dbs):
+    loader = LoaderAgent(dbs.oc_client)
+    validator = ValidationAgent(loader)
+    result = loader.apply("student", "create", {"pieas_id": "PIEAS-STU-N", "name": "N"}, "PIEAS-STU-N")
+    issue = validator.validate_write("student", result.openeducat_id, {"name": "Wrong"})
+    assert issue is not None and "Wrong" in issue

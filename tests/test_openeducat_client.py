@@ -43,3 +43,32 @@ def test_search_read_domain_filters_by_equality(dbs):
 def test_unknown_model_raises(dbs):
     with pytest.raises(ValueError):
         dbs.oc_client.create("op.nonexistent", {})
+
+
+def test_marshal_values_converts_none_to_false():
+    """xmlrpc.client raises "cannot marshal None unless allow_none is enabled"
+    before a request is even sent, so a source field cleared to NULL would
+    otherwise fail the whole write instead of clearing the target field.
+    False is Odoo's own canonical empty value.
+    """
+    from openedu_orchestrator.openeducat_client import OdooXmlRpcClient
+    out = OdooXmlRpcClient._marshal_values({"first_name": None, "gr_no": "R1", "batch_year": 0})
+    assert out == {"first_name": False, "gr_no": "R1", "batch_year": 0}
+
+
+def test_marshal_values_leaves_falsy_non_none_values_alone():
+    """0, "" and False are legitimate values, not "no value" -- only None is."""
+    from openedu_orchestrator.openeducat_client import OdooXmlRpcClient
+    out = OdooXmlRpcClient._marshal_values({"a": 0, "b": "", "c": False, "d": None})
+    assert out == {"a": 0, "b": "", "c": False, "d": False}
+
+
+def test_marshal_values_output_is_xmlrpc_serialisable():
+    """The actual property that matters -- proven by round-tripping through
+    xmlrpc's own marshaller rather than asserting on our own conversion.
+    """
+    import xmlrpc.client
+    from openedu_orchestrator.openeducat_client import OdooXmlRpcClient
+    with pytest.raises(TypeError, match="cannot marshal None"):
+        xmlrpc.client.dumps(({"first_name": None},))
+    xmlrpc.client.dumps((OdooXmlRpcClient._marshal_values({"first_name": None}),))
