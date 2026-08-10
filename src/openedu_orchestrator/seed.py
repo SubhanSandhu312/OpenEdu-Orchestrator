@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from faker import Faker
 
 from openedu_orchestrator.models import PieasCourse, PieasFaculty, PieasStudent
-from openedu_orchestrator.pieas_source import insert_course, insert_faculty, insert_student
+from openedu_orchestrator import pieas_source as _default_source
 
 DEPARTMENTS = [
     "Computer Science",
@@ -59,7 +59,17 @@ def seed_pieas(
     num_faculty: int = 18,
     num_courses: int = 14,
     seed: int = 42,
+    source=_default_source,
 ) -> dict[str, int]:
+    """`source` defaults to the SQLite-backed pieas_source module -- pass
+    pieas_source_mysql to seed a real MySQL-backed PIEAS instead. Same
+    injection pattern as ExtractorAgent's `source` parameter; the
+    generation logic itself is 100% backend-agnostic.
+    """
+    insert_student = source.insert_student
+    insert_faculty = source.insert_faculty
+    insert_course = source.insert_course
+
     fake = Faker()
     Faker.seed(seed)
     rng = random.Random(seed)

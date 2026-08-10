@@ -12,15 +12,25 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from openedu_orchestrator.config import PIEAS_DB_PATH, PIEAS_TABLE_FOR_ENTITY
 from openedu_orchestrator import pieas_source as src
 
 
 class ExtractorAgent:
-    def __init__(self, db_path: Path = PIEAS_DB_PATH):
-        self._conn = src.get_connection(db_path)
+    def __init__(self, db_path: Path = PIEAS_DB_PATH, source: Any = src):
+        """`source` defaults to the SQLite-backed pieas_source module (what
+        the test suite runs against) and is injectable the same way
+        LoaderAgent's `client` and graph.py's `transform_fn` are -- e.g.
+        pieas_source_mysql, which exposes the identical function surface
+        against a real MySQL-backed PIEAS stand-in. `db_path` is passed
+        straight through to `source.get_connection`, so its meaning
+        depends on which source module is in use (a file path for SQLite,
+        a connection-info dict for MySQL).
+        """
+        self._source = source
+        self._conn = source.get_connection(db_path)
 
     def close(self) -> None:
         self._conn.close()
@@ -28,19 +38,19 @@ class ExtractorAgent:
     def fetch_changed(self, entity_type: str, watermark: Optional[datetime]) -> list[dict]:
         """Instruction 1 (Listing 1): rows where last_updated > watermark."""
         table = PIEAS_TABLE_FOR_ENTITY[entity_type]
-        rows = src.fetch_changed(self._conn, table, watermark)
+        rows = self._source.fetch_changed(self._conn, table, watermark)
         return [dict(row) for row in rows]
 
     def fetch_page(self, entity_type: str, limit: int, offset: int) -> list[dict]:
         """Bulk-migration instruction: one page of the full table."""
         table = PIEAS_TABLE_FOR_ENTITY[entity_type]
-        rows = src.fetch_page(self._conn, table, limit, offset)
+        rows = self._source.fetch_page(self._conn, table, limit, offset)
         return [dict(row) for row in rows]
 
     def fetch_ids(self, entity_type: str) -> list[str]:
         """Instruction 2 (Listing 2): full unfiltered ID list, for the deletion cycle."""
         table = PIEAS_TABLE_FOR_ENTITY[entity_type]
-        return src.fetch_ids(self._conn, table)
+        return self._source.fetch_ids(self._conn, table)
 
     def fetch(self, instruction: dict) -> dict:
         """Single entry point mirroring 'takes one of two instructions from the
