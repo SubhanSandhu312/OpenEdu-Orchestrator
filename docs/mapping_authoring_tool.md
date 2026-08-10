@@ -159,7 +159,44 @@ surfaced automatically, instead of discovered by a failed live write).
   service).
 - `compile_mapping`: golden-output test using today's real, live-verified
   mapping as ground truth, not just internal self-consistency.
-- `propose_mapping`/`_call_llm`: once wired, evaluate against the same
-  ground truth -- does the LLM's draft correctly flag `gr_no`, the gender
-  encoding mismatch, and the two unmapped-relational fields? That's a
-  concrete, evidenced eval, not a vague aspiration.
+- `propose_mapping`/`_call_llm`: evaluate against the same ground truth --
+  does the LLM's draft correctly flag `gr_no`, the gender encoding
+  mismatch, and the unmapped-relational fields?
+
+## Live eval results (2026-08-10, gemini-3.1-flash-lite)
+
+Ran for real against all three entity types, output saved as
+`mappings/{entity}_pieas_gemini_draft.json`. Assessed structurally against
+known ground truth, not exact-string match:
+
+**student** -- matches `mappings/student_pieas.json` exactly: `roll_number
+-> gr_no` (direct), `gender` value-mapped `male->m`/`female->f`,
+`department`/`batch_year` correctly `unmapped` with relational reasoning
+(named the actual related models, `op.department`/`op.batch`, more
+precisely than the hand-written notes). Zero invented mappings. Also
+caught two required fields the hand-written mapping never checked
+(`partner_id`, `autopost_bills`) and correctly refused to guess values for
+either.
+
+**faculty** -- correctly identified the exact real data gap found earlier
+by a failed live write (`gender` required, no PIEAS source field exists),
+without being told about it in advance. Also caught two more required
+fields the hand-verification missed entirely (`birth_date`, `partner_id`).
+Mapped `employee_code -> ref` and `designation -> function` (matching
+the earlier hand-derived mapping); correctly flagged `department ->
+main_department_id` as relational, naming the real field precisely.
+
+**course** -- matches `mappings/course_pieas.json` exactly: `code`/`name`
+direct, `department_id`/`credit_hours`/`semester` all correctly
+`unmapped` (no invented mapping for the two fields with no target
+equivalent, a real temptation given PIEAS's source schema has fields
+literally named `credit_hours`/`semester`). Also caught `evaluation_type`
+as a required field neither the hand-mapping nor the earlier live-testing
+session had found.
+
+**Net assessment**: across all three entities, zero hallucinated mappings
+and zero invented default values for missing data -- the two failure
+modes this tool exists to avoid. It also found five required-field gaps
+across the three entities that hand-verification (a human actually
+testing against the live instance) had missed. This is a genuinely
+positive result, not just "it ran without erroring."

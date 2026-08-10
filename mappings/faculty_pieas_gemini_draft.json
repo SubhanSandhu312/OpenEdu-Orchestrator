@@ -1,0 +1,84 @@
+{
+  "entity_type": "faculty",
+  "target_model": "op.faculty",
+  "field_mappings": [
+    {
+      "source_field": "pieas_id",
+      "target_field": null,
+      "handling": "external_id",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "first_name",
+      "target_field": "first_name",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "last_name",
+      "target_field": "last_name",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "email",
+      "target_field": "email",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "employee_code",
+      "target_field": "ref",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "department",
+      "target_field": "main_department_id",
+      "handling": "unmapped",
+      "value_map": null,
+      "note": "Relational field; requires resolving the string department name to an existing record ID in the op.department model."
+    },
+    {
+      "source_field": "designation",
+      "target_field": "function",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "last_updated",
+      "target_field": "write_date",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    }
+  ],
+  "unmapped_required_target_fields": [
+    {
+      "target_field": "partner_id",
+      "target_label": "Partner",
+      "note": "Required relational field for contact details; no source field provided to link to an existing res.partner record."
+    },
+    {
+      "target_field": "birth_date",
+      "target_label": "Birth Date",
+      "note": "Required field; source schema does not contain birth date information."
+    },
+    {
+      "target_field": "gender",
+      "target_label": "Gender",
+      "note": "Required selection field; source schema does not contain gender information."
+    },
+    {
+      "target_field": "autopost_bills",
+      "target_label": "Auto-post bills",
+      "note": "Required selection field; source schema does not provide this configuration."
+    }
+  ]
+}
