@@ -154,3 +154,10 @@ class OrchestratorAgent:
 
     def mapping_count(self, entity_type: str) -> int:
         return store.count_mappings(self._conn, self._source_system, entity_type)
+
+    def all_mappings(self, entity_type: str):
+        """Every (source_id, openeducat_id, content_hash) this source_system has
+        ever synced for entity_type -- used by the reconcile command's drift
+        audit, which needs the full mapping set rather than a single lookup.
+        """
+        return store.get_all_mappings(self._conn, self._source_system, entity_type)

@@ -283,6 +283,85 @@ def status(source: str, target: str):
 
 
 @cli.command()
+@_SOURCE_OPTION
+@_TARGET_OPTION
+@click.option("--entity", type=click.Choice(list(ENTITY_TYPES) + ["all"]), default="all")
+def reconcile(source: str, target: str, entity: str):
+    """Read-only drift audit -- a pre-cutover sanity check.
+
+    Compares the PIEAS source against sync_mapping and the target *without
+    writing anything*, and flags gaps a sync/deletion cycle should already
+    have closed (a stalled/interrupted cycle, or a crash mid-write). This is
+    "verify", not "fix" -- re-running 'sync'/'deletion-check' is what closes
+    any drift this reports. Exits 1 if any drift is found, 0 if clean, so it
+    can gate a cutover in a script/CI job.
+
+    Caveat: sync_mapping's openeducat_id is scoped by source_system, not by
+    target -- there is exactly one live target per deployment in this
+    design (see OrchestratorAgent / sync_store.py). Running reconcile with
+    a different --target than what actually wrote the current mapping rows
+    (e.g. switching mock<->real mid-session, as this test build lets you do)
+    will report every mapped row as missing_target, since the stored id is
+    from the other target's id space -- that's a mismatched invocation, not
+    real drift.
+    """
+    source_module = SOURCE_MODULES[source]
+    conn_info = PIEAS_DB_PATH if source == "pieas" else None
+    pieas_conn = source_module.get_connection(conn_info)
+    orchestrator, extractor, loader, validator = _build_agents(source, target)
+
+    any_drift = False
+    for et in _entity_list(entity):
+        table_name = PIEAS_TABLE_FOR_ENTITY[et]
+        source_ids = set(source_module.fetch_ids(pieas_conn, table_name))
+        mappings = {m["source_id"]: m for m in orchestrator.all_mappings(et)}
+
+        # In sync_mapping but never fetched from the source at all -- a bulk
+        # migration or change cycle should have created this row and didn't.
+        not_synced = sorted(source_ids - mappings.keys())
+
+        missing_target, stale_archived, should_be_archived = [], [], []
+        for source_id, mapping in mappings.items():
+            actual = loader.read_back(et, mapping["openeducat_id"])
+            if actual is None:
+                # sync_mapping points at a target record that no longer
+                # exists -- e.g. it was deleted directly in OpenEduCat,
+                # outside this pipeline.
+                missing_target.append(source_id)
+                continue
+            is_active = actual.get("active") not in (0, False)
+            if source_id in source_ids and not is_active:
+                # Still present at the source but archived on the target --
+                # a deletion cycle ran against a source_id that has since
+                # come back, or archived the wrong record.
+                stale_archived.append(source_id)
+            elif source_id not in source_ids and is_active:
+                # No longer present at the source but still active on the
+                # target -- the deletion cycle that should have archived
+                # this hasn't run (or didn't get this far before failing).
+                should_be_archived.append(source_id)
+
+        drift = bool(not_synced or missing_target or stale_archived or should_be_archived)
+        any_drift = any_drift or drift
+
+        status_label = "[red]DRIFT[/red]" if drift else "[green]clean[/green]"
+        console.print(f"[bold]{et}[/bold] ({source} -> {target}): {status_label}  "
+                       f"source={len(source_ids)} mapped={len(mappings)}")
+        if not_synced:
+            console.print(f"  [red]not_synced[/red] ({len(not_synced)}): {not_synced}")
+        if missing_target:
+            console.print(f"  [red]missing_target[/red] ({len(missing_target)}): {missing_target}")
+        if stale_archived:
+            console.print(f"  [red]stale_archived[/red] ({len(stale_archived)}): {stale_archived}")
+        if should_be_archived:
+            console.print(f"  [red]should_be_archived[/red] ({len(should_be_archived)}): {should_be_archived}")
+
+    pieas_conn.close(); extractor.close(); loader.close(); orchestrator.close()
+    if any_drift:
+        raise SystemExit(1)
+
+
+@cli.command()
 def demo():
     """End-to-end walkthrough: seed -> bulk migrate -> mutate PIEAS -> change
     cycle -> deletion cycle -> status. Intended as the one command that shows
