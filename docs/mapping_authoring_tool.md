@@ -59,11 +59,11 @@ source Pydantic model (models.py)      target fields_get (OdooXmlRpcClient)
                                  v
                      build_mapping_prompt()
                                  v
-                        propose_mapping()  <-- the one seam needing an
-                                 |              LLM API call; not wired yet
-                                 v              (no ANTHROPIC_API_KEY in
-                       MappingProposal (draft)  this environment to verify
-                                 |              against -- see below)
+                        propose_mapping()  <-- calls Gemini (free tier,
+                                 |              structured output); needs
+                                 v              GEMINI_API_KEY -- see below
+                       MappingProposal (draft)
+                                 |
                         [human review + edit]
                                  v
                       approved mapping config (JSON)
@@ -105,16 +105,18 @@ surfaced automatically, instead of discovered by a failed live write).
   real-target mapping** (the one that successfully migrated 60 students to
   the live instance) as a golden-output regression test.
 
-**Deferred, clearly marked** (`_call_llm` in `mapping_authoring.py`):
-- The actual Anthropic API call. No `ANTHROPIC_API_KEY` is available in
-  this environment to verify a live call against, so `_call_llm` raises
-  `NotImplementedError` with a pointer back to this doc rather than
-  shipping unverified prompt-engineering as if it were tested. Wiring this
-  up is a small, mechanical step once a key is available -- structured
-  output against the existing `MappingProposal` pydantic schema (Claude's
-  tool-use / structured-output mode), using `extract_source_schema` +
-  `extract_target_schema` + a handful of sample records as the prompt
-  context.
+**Implemented, not yet run live** (`_call_llm` in `mapping_authoring.py`):
+- Calls Google Gemini (`gemini-2.0-flash`) with structured output
+  (`response_schema=MappingProposal`) -- a free-tier provider, deliberately
+  chosen over a paid one since this runs once per source system, not per
+  record, so quota is a non-issue. Requires `GEMINI_API_KEY` (free, no
+  credit card, from https://aistudio.google.com/apikey) in the
+  environment; raises a clear `RuntimeError` pointing here if it's unset.
+  No key has been provided in this environment yet, so the call itself is
+  implemented and schema-verified but not yet exercised against a live
+  response -- next step is running it for real and evaluating the output
+  against `mappings/student_pieas.json` / `mappings/course_pieas.json` as
+  ground truth (see Testing strategy below).
 
 ## Review/approval workflow
 

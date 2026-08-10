@@ -9,11 +9,16 @@ needing live natural-language judgment per record. So the LLM's role here
 is authoring a draft mapping once per new source system, for a human to
 review and approve; the approved, static config is what actually runs
 (compile_mapping), with zero LLM involvement at sync time.
+
+Model provider: Google Gemini (free tier via https://aistudio.google.com/apikey
+-- no paid API key required, since this runs once per source system rather
+than per record). Requires GEMINI_API_KEY in the environment.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -100,20 +105,57 @@ def build_mapping_prompt(
     return "\n".join(lines)
 
 
+_SYSTEM_INSTRUCTION = (
+    "You are assisting a data-migration engineer in mapping fields from a "
+    "source university system's schema onto a real OpenEduCat/Odoo target "
+    "schema. Be conservative and honest about uncertainty:\n"
+    "- Only propose 'direct' or 'value_map' when you are genuinely "
+    "confident the mapping is correct.\n"
+    "- If a source field has no clear target equivalent, or the target "
+    "field is relational (a many2one/one2many needing linked records "
+    "rather than a plain value -- e.g. a department or batch reached "
+    "through an enrollment record, not a direct field), mark it "
+    "'unmapped' and explain why in `note`. Do not guess a mapping just to "
+    "avoid leaving a field unmapped.\n"
+    "- If a target field is required (per its schema's `required` flag) "
+    "but no source field is a good match, list it under "
+    "`unmapped_required_target_fields`. NEVER invent a plausible-sounding "
+    "default value to fill a gap -- that would silently fabricate data in "
+    "a real system of record.\n"
+    "- If a target field's `selection` list differs from the source's "
+    "raw values (e.g. 'male'/'female' vs 'm'/'f'), use 'value_map' and "
+    "give the exact translation, not just a `direct` passthrough."
+)
+
+
 def _call_llm(prompt: str) -> str:
-    """The one seam this module leaves unwired. No ANTHROPIC_API_KEY is
-    available in this environment to verify a live call against, so this
-    raises rather than shipping unverified prompt-engineering as if it
-    were tested. To wire it up: call Claude with structured output
-    (tool-use / response schema) against the MappingProposal pydantic
-    schema, using build_mapping_prompt()'s output as context. See
-    docs/mapping_authoring_tool.md for the full design.
+    """Calls Google Gemini (free tier -- no paid key needed, since this
+    runs once per source system, not per record) with structured output
+    against the MappingProposal schema. Requires GEMINI_API_KEY in the
+    environment; get one free (no credit card) at
+    https://aistudio.google.com/apikey.
     """
-    raise NotImplementedError(
-        "_call_llm is not wired to a live model yet -- no ANTHROPIC_API_KEY "
-        "was available to verify a real call against. See "
-        "docs/mapping_authoring_tool.md for what's needed to wire it up."
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not set. Get a free key (no credit card) at "
+            "https://aistudio.google.com/apikey, then set it as an "
+            "environment variable and retry. See "
+            "docs/mapping_authoring_tool.md."
+        )
+    from google import genai
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+        config={
+            "system_instruction": _SYSTEM_INSTRUCTION,
+            "response_mime_type": "application/json",
+            "response_schema": MappingProposal,
+        },
     )
+    return response.text
 
 
 def propose_mapping(

@@ -65,8 +65,9 @@ def test_build_mapping_prompt_includes_both_schemas_and_samples():
     assert "2024-CS-001" in prompt
 
 
-def test_call_llm_raises_clearly_when_unwired():
-    with pytest.raises(NotImplementedError, match="ANTHROPIC_API_KEY"):
+def test_call_llm_raises_clearly_when_no_api_key(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
         ma._call_llm("irrelevant prompt")
 
 
