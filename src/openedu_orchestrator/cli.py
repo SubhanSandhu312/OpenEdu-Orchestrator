@@ -12,6 +12,7 @@ from __future__ import annotations
 import random
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -22,6 +23,7 @@ from openedu_orchestrator.agents.extractor import ExtractorAgent
 from openedu_orchestrator.agents.loader import LoaderAgent
 from openedu_orchestrator.agents.orchestrator import OrchestratorAgent
 from openedu_orchestrator.agents.validator import ValidationAgent
+from openedu_orchestrator.agents.transformer import TransformerAgent
 from openedu_orchestrator.config import (
     CHANGE_CYCLE_INTERVAL_SECONDS,
     ENTITY_TYPES,
@@ -32,27 +34,76 @@ from openedu_orchestrator.config import (
     SYNC_STORE_DB_PATH,
 )
 from openedu_orchestrator.models import PieasStudent
-from openedu_orchestrator.openeducat_client import OpenEduCatClient
+from openedu_orchestrator.openeducat_client import OpenEduCatClient, OdooXmlRpcClient
 from openedu_orchestrator.openeducat_client import reset_database as reset_oc_db
 from openedu_orchestrator import pieas_source as src
+from openedu_orchestrator import pieas_source_mysql
 from openedu_orchestrator.pieas_source import reset_database as reset_pieas_db
 from openedu_orchestrator.graph import run_cycle
 from openedu_orchestrator.seed import seed_pieas
+from openedu_orchestrator import mapping_authoring as ma
 
 console = Console()
+
+# --source: which physical store backs PIEAS. Both represent the same
+# *logical* source system ("pieas"), just different backing technology --
+# see source_registry.py / sync_store's source_system scoping, which
+# distinguishes logical sources (PIEAS vs. a different university), not
+# physical database engines.
+SOURCE_MODULES = {"pieas": src, "pieas-mysql": pieas_source_mysql}
+
+# Real op.course actually represents a degree program, not a subject --
+# course maps to op.subject on the real target, op.course on the mock
+# (see docs/mapping_authoring_tool.md and the course-rework commit).
+REAL_MODEL_FOR_ENTITY = {**OPENEDUCAT_MODEL_FOR_ENTITY, "course": "op.subject"}
 
 
 def _entity_list(entity: str) -> list[str]:
     return list(ENTITY_TYPES) if entity == "all" else [entity]
 
 
-def _build_agents():
-    orchestrator = OrchestratorAgent(SYNC_STORE_DB_PATH)
-    extractor = ExtractorAgent(PIEAS_DB_PATH)
-    client = OpenEduCatClient(OPENEDUCAT_DB_PATH)
-    loader = LoaderAgent(client)
+def _build_agents(source: str = "pieas", target: str = "mock"):
+    source_module = SOURCE_MODULES[source]
+    db_path = PIEAS_DB_PATH if source == "pieas" else None
+    extractor = ExtractorAgent(db_path, source=source_module)
+    # source_system stays "pieas" regardless of which physical store backs
+    # it -- SQLite and MySQL are two backing stores for the same logical
+    # PIEAS system in this build, not two different source systems.
+    orchestrator = OrchestratorAgent(SYNC_STORE_DB_PATH, source_system="pieas")
+    if target == "real":
+        client = OdooXmlRpcClient()
+        loader = LoaderAgent(client=client, model_for_entity=REAL_MODEL_FOR_ENTITY)
+    else:
+        client = OpenEduCatClient(OPENEDUCAT_DB_PATH)
+        loader = LoaderAgent(client)
     validator = ValidationAgent(loader)
     return orchestrator, extractor, loader, validator
+
+
+def _transform_fn_for(entity_type: str, target: str):
+    """TransformerAgent.transform (graph.py's own default) for the mock;
+    the approved, human-reviewed compiled mapping for the real target --
+    see mappings/*.json and docs/mapping_authoring_tool.md.
+    """
+    if target == "mock":
+        return TransformerAgent.transform
+    mapping_path = Path(f"mappings/{entity_type}_pieas.json")
+    if not mapping_path.exists():
+        raise click.ClickException(
+            f"No approved real-target mapping at {mapping_path} for entity_type={entity_type!r}. "
+            f"Run the mapping-authoring tool and get it reviewed before syncing this entity to a real target."
+        )
+    return ma.compile_mapping(ma.load_mapping(mapping_path))
+
+
+_SOURCE_OPTION = click.option(
+    "--source", type=click.Choice(list(SOURCE_MODULES)), default="pieas", show_default=True,
+    help="Which physical store backs PIEAS.",
+)
+_TARGET_OPTION = click.option(
+    "--target", type=click.Choice(["mock", "real"]), default="mock", show_default=True,
+    help="mock = local SQLite test double; real = the live Odoo/OpenEduCat instance.",
+)
 
 
 @click.group()
@@ -61,17 +112,20 @@ def cli():
 
 
 @cli.command()
+@_SOURCE_OPTION
 @click.option("--students", default=60, show_default=True)
 @click.option("--faculty", default=18, show_default=True)
 @click.option("--courses", default=14, show_default=True)
 @click.option("--seed", default=42, show_default=True)
 @click.option("--full-reset/--pieas-only", default=True, help="Also wipe OpenEduCat + sync store.")
-def seed(students: int, faculty: int, courses: int, seed: int, full_reset: bool):
+def seed(source: str, students: int, faculty: int, courses: int, seed: int, full_reset: bool):
     """(Re)create the dummy PIEAS database with fake data."""
-    conn = reset_pieas_db(PIEAS_DB_PATH)
-    counts = seed_pieas(conn, students, faculty, courses, seed)
+    source_module = SOURCE_MODULES[source]
+    conn_info = PIEAS_DB_PATH if source == "pieas" else None
+    conn = source_module.reset_database(conn_info)
+    counts = seed_pieas(conn, students, faculty, courses, seed, source=source_module)
     conn.close()
-    console.print(f"[green]Seeded PIEAS DB[/green]: {counts}")
+    console.print(f"[green]Seeded PIEAS ({source})[/green]: {counts}")
     if full_reset:
         reset_oc_db(OPENEDUCAT_DB_PATH).close()
         sync_store.reset_database(SYNC_STORE_DB_PATH)
@@ -79,31 +133,37 @@ def seed(students: int, faculty: int, courses: int, seed: int, full_reset: bool)
 
 
 @cli.command()
+@_SOURCE_OPTION
+@_TARGET_OPTION
 @click.option("--entity", type=click.Choice(list(ENTITY_TYPES) + ["all"]), default="all")
-def migrate(entity: str):
+def migrate(source: str, target: str, entity: str):
     """Run the one-time bulk migration cycle."""
-    orchestrator, extractor, loader, validator = _build_agents()
+    orchestrator, extractor, loader, validator = _build_agents(source, target)
     for et in _entity_list(entity):
         if not orchestrator.is_bulk_mode(et):
             console.print(f"[yellow]{et}: already migrated (sync_mapping is non-empty) -- skipping bulk, "
                           f"run 'sync' instead[/yellow]")
             continue
-        report = run_cycle("bulk", et, orchestrator, extractor, loader, validator)
+        report = run_cycle("bulk", et, orchestrator, extractor, loader, validator,
+                            transform_fn=_transform_fn_for(et, target))
         _print_report("BULK MIGRATION", report)
     extractor.close(); loader.close(); orchestrator.close()
 
 
 @cli.command()
+@_SOURCE_OPTION
+@_TARGET_OPTION
 @click.option("--entity", type=click.Choice(list(ENTITY_TYPES) + ["all"]), default="all")
 @click.option("--loop/--once", default=False, help="Keep running on an interval instead of a single pass.")
 @click.option("--interval", default=CHANGE_CYCLE_INTERVAL_SECONDS, show_default=True, help="Seconds between loop passes.")
-def sync(entity: str, loop: bool, interval: int):
+def sync(source: str, target: str, entity: str, loop: bool, interval: int):
     """Run the change-detection cycle (timestamp watermark)."""
-    orchestrator, extractor, loader, validator = _build_agents()
+    orchestrator, extractor, loader, validator = _build_agents(source, target)
     try:
         while True:
             for et in _entity_list(entity):
-                report = run_cycle("change", et, orchestrator, extractor, loader, validator)
+                report = run_cycle("change", et, orchestrator, extractor, loader, validator,
+                                    transform_fn=_transform_fn_for(et, target))
                 _print_report("CHANGE CYCLE", report)
             if not loop:
                 break
@@ -114,55 +174,62 @@ def sync(entity: str, loop: bool, interval: int):
 
 
 @cli.command(name="deletion-check")
+@_SOURCE_OPTION
+@_TARGET_OPTION
 @click.option("--entity", type=click.Choice(list(ENTITY_TYPES) + ["all"]), default="all")
-def deletion_check(entity: str):
+def deletion_check(source: str, target: str, entity: str):
     """Run the deletion-detection cycle (full ID list vs. sync_mapping)."""
-    orchestrator, extractor, loader, validator = _build_agents()
+    orchestrator, extractor, loader, validator = _build_agents(source, target)
     for et in _entity_list(entity):
+        # deletion mode skips the Transformer entirely (graph.py's own
+        # routing) so transform_fn is irrelevant here regardless of target.
         report = run_cycle("deletion", et, orchestrator, extractor, loader, validator)
         _print_report("DELETION CYCLE", report)
     extractor.close(); loader.close(); orchestrator.close()
 
 
 @cli.command()
+@_SOURCE_OPTION
 @click.option("--entity", type=click.Choice(["student", "faculty", "course"]), default="student")
 @click.option("--update", "n_update", default=3, show_default=True, help="Rows to edit.")
 @click.option("--insert", "n_insert", default=2, show_default=True, help="New rows to add.")
 @click.option("--delete", "n_delete", default=1, show_default=True, help="Rows to remove.")
 @click.option("--seed", default=None, type=int, help="RNG seed for reproducible mutation.")
-def mutate(entity: str, n_update: int, n_insert: int, n_delete: int, seed: int | None):
+def mutate(source: str, entity: str, n_update: int, n_insert: int, n_delete: int, seed: int | None):
     """Simulate PIEAS 'still being used': edits, new admissions, and removals."""
+    source_module = SOURCE_MODULES[source]
     rng = random.Random(seed)
-    conn = src.get_connection(PIEAS_DB_PATH)
+    conn_info = PIEAS_DB_PATH if source == "pieas" else None
+    conn = source_module.get_connection(conn_info)
     table = PIEAS_TABLE_FOR_ENTITY[entity]
-    ids = src.fetch_ids(conn, table)
+    ids = source_module.fetch_ids(conn, table)
     if not ids:
         console.print("[red]No rows to mutate -- run 'seed' first.[/red]")
         return
 
     updated, deleted = [], []
-    for pieas_id in rng.sample(ids, k=min(n_update, len(ids))):
+    for source_id in rng.sample(ids, k=min(n_update, len(ids))):
         if entity == "student":
-            src.update_fields(conn, table, pieas_id, {"department": rng.choice(
+            source_module.update_fields(conn, table, source_id, {"department": rng.choice(
                 ["Computer Science", "Electrical Engineering", "Physics"])})
         elif entity == "faculty":
-            src.update_fields(conn, table, pieas_id, {"designation": rng.choice(
+            source_module.update_fields(conn, table, source_id, {"designation": rng.choice(
                 ["Lecturer", "Assistant Professor", "Associate Professor", "Professor"])})
         else:
-            src.update_fields(conn, table, pieas_id, {"credit_hours": rng.choice([2, 3, 4])})
-        updated.append(pieas_id)
+            source_module.update_fields(conn, table, source_id, {"credit_hours": rng.choice([2, 3, 4])})
+        updated.append(source_id)
 
     remaining = [i for i in ids if i not in updated]
-    for pieas_id in rng.sample(remaining, k=min(n_delete, len(remaining))):
-        src.delete_row(conn, table, pieas_id)
-        deleted.append(pieas_id)
+    for source_id in rng.sample(remaining, k=min(n_delete, len(remaining))):
+        source_module.delete_row(conn, table, source_id)
+        deleted.append(source_id)
 
     inserted = []
     if entity == "student":
-        existing = src.count_rows(conn, "students") + 100000
+        existing = source_module.count_rows(conn, "students") + 100000
         for i in range(n_insert):
             new_id = f"PIEAS-STU-{existing + i:06d}"
-            src.insert_student(conn, PieasStudent(
+            source_module.insert_student(conn, PieasStudent(
                 pieas_id=new_id, roll_number=f"2026-CS-{existing + i}",
                 first_name="New", last_name=f"Admit{i}", email=f"new.admit{i}.{existing}@example.com",
                 gender=rng.choice(["male", "female"]), date_of_birth="2005-01-01",
@@ -171,18 +238,27 @@ def mutate(entity: str, n_update: int, n_insert: int, n_delete: int, seed: int |
             ))
             inserted.append(new_id)
 
-    console.print(f"[cyan]{entity}[/cyan]: updated={updated} deleted={deleted} inserted={inserted}")
+    console.print(f"[cyan]{entity}[/cyan] ({source}): updated={updated} deleted={deleted} inserted={inserted}")
     conn.close()
 
 
 @cli.command()
-def status():
+@_SOURCE_OPTION
+@_TARGET_OPTION
+def status(source: str, target: str):
     """Print current row counts and watermarks across all three databases."""
-    orchestrator, extractor, loader, validator = _build_agents()
-    pieas_conn = src.get_connection(PIEAS_DB_PATH)
+    source_module = SOURCE_MODULES[source]
+    orchestrator, extractor, loader, validator = _build_agents(source, target)
+    conn_info = PIEAS_DB_PATH if source == "pieas" else None
+    pieas_conn = source_module.get_connection(conn_info)
     oc_client = loader._client
+    model_for_entity = REAL_MODEL_FOR_ENTITY if target == "real" else OPENEDUCAT_MODEL_FOR_ENTITY
 
-    table = Table(title="OpenEdu Orchestrator -- status")
+    if target == "real":
+        console.print("[dim]Note: OpenEduCat active/archived counts include any pre-existing target "
+                       "data (e.g. OpenEduCat's own demo records) -- 'sync_mapping rows' is the "
+                       "accurate count of what this pipeline itself has actually synced.[/dim]")
+    table = Table(title=f"OpenEdu Orchestrator -- status (source={source}, target={target})")
     table.add_column("Entity")
     table.add_column("PIEAS rows", justify="right")
     table.add_column("OpenEduCat active", justify="right")
@@ -192,10 +268,10 @@ def status():
 
     for et in ENTITY_TYPES:
         pieas_table = PIEAS_TABLE_FOR_ENTITY[et]
-        model = OPENEDUCAT_MODEL_FOR_ENTITY[et]
-        pieas_count = src.count_rows(pieas_conn, pieas_table)
-        active_count = len(oc_client.search_read(model, [("active", "=", True)]))
-        archived_count = len(oc_client.search_read(model, [("active", "=", False)]))
+        model = model_for_entity[et]
+        pieas_count = source_module.count_rows(pieas_conn, pieas_table)
+        active_count = oc_client.search_count(model, [("active", "=", True)])
+        archived_count = oc_client.search_count(model, [("active", "=", False)])
         mapping_count = orchestrator.mapping_count(et)
         watermark = orchestrator.get_watermark(et)
         table.add_row(

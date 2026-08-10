@@ -24,10 +24,17 @@ class ValidationAgent:
         actual = self._loader.read_back(entity_type, openeducat_id)
         if actual is None:
             return f"{entity_type}/{openeducat_id}: record missing after write"
+        # "source_id" is a client-internal sentinel (OdooXmlRpcClient pops
+        # it before writing and registers it via ir.model.data instead --
+        # see mapping_authoring.py's compile_mapping); it is never actually
+        # persisted as a real field on any target, mock or real, so it can
+        # never match on read-back. Found as a real false-positive
+        # validation failure the first time this ran through the real
+        # target's compiled mapping with a validator attached.
         mismatches = [
             f"{field}=expected {value!r}, got {actual.get(field)!r}"
             for field, value in expected_fields.items()
-            if actual.get(field) != value
+            if field != "source_id" and actual.get(field) != value
         ]
         if mismatches:
             return f"{entity_type}/{openeducat_id}: " + "; ".join(mismatches)

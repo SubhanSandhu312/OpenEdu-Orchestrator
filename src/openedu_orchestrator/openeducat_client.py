@@ -157,6 +157,14 @@ class OpenEduCatClient:
         cur = self._conn.execute(query, params)
         return [dict(row) for row in cur.fetchall()]
 
+    def search_count(self, model: str, domain: Optional[list[tuple]] = None) -> int:
+        table = self._table(model)
+        where_sql, params = self._domain_to_sql(domain or [])
+        query = f"SELECT COUNT(*) AS n FROM {table}"
+        if where_sql:
+            query += f" WHERE {where_sql}"
+        return self._conn.execute(query, params).fetchone()["n"]
+
     def read(self, model: str, ids: list[int], fields: Optional[list[str]] = None) -> list[dict]:
         if not ids:
             return []
@@ -301,6 +309,17 @@ class OdooXmlRpcClient:
     ) -> list[dict]:
         kwargs: dict[str, Any] = {"fields": fields} if fields else {}
         return self._execute(model, "search_read", [domain or []], kwargs)
+
+    def search_count(self, model: str, domain: Optional[list[tuple]] = None) -> int:
+        """Real Odoo's own search_count -- doesn't fetch/compute any field
+        values at all, unlike search_read, so it sidesteps a real bug found
+        by testing: search_read with no explicit `fields` list triggers
+        computing *every* field, including a broken computed field in
+        openeducat_fees that crashes on multi-record recordsets
+        ("Expected singleton"). Counting should never need to compute
+        fields in the first place.
+        """
+        return self._execute(model, "search_count", [domain or []])
 
     def read(self, model: str, ids: list[int], fields: Optional[list[str]] = None) -> list[dict]:
         if not ids:
