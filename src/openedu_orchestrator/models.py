@@ -94,6 +94,52 @@ class LoadResult(BaseModel):
     error: Optional[str] = None
 
 
+FieldHandling = Literal["direct", "value_map", "external_id", "unmapped"]
+
+
+class FieldMappingEntry(BaseModel):
+    """One source field's disposition when mapping into a real target schema.
+
+    `direct`: passthrough or rename (source_field -> target_field, same value).
+    `value_map`: enum/selection translation (e.g. PIEAS "male" -> Odoo "m").
+    `external_id`: routed to the client's ir.model.data handling, same as
+    pieas_id today -- not written as a plain field at all.
+    `unmapped`: flagged, not guessed -- either no target equivalent exists,
+    or the target field is relational (needs FK/linking logic, not a value
+    mapping). `note` should say which.
+    """
+
+    source_field: str
+    target_field: Optional[str] = None
+    handling: FieldHandling = "direct"
+    value_map: Optional[dict[str, str]] = None
+    note: Optional[str] = None
+
+
+class UnmappedRequiredTargetField(BaseModel):
+    """A target field with required=True (per fields_get) that has no
+    candidate source field at all -- a data-availability gap, not something
+    a mapping can fix. Surfacing this explicitly is how the faculty-gender
+    gap (PIEAS has no gender field; op.faculty requires one) would have
+    been caught by inspection instead of by a failed live write.
+    """
+
+    target_field: str
+    target_label: str
+    note: str
+
+
+class MappingProposal(BaseModel):
+    """Draft output of propose_mapping(); always requires human review
+    before compile_mapping() turns it into an executable transform_fn.
+    """
+
+    entity_type: EntityType
+    target_model: str
+    field_mappings: list[FieldMappingEntry]
+    unmapped_required_target_fields: list[UnmappedRequiredTargetField] = []
+
+
 class RunReport(BaseModel):
     mode: SyncMode
     entity_type: EntityType

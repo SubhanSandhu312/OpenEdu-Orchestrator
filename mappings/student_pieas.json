@@ -1,0 +1,66 @@
+{
+  "entity_type": "student",
+  "target_model": "op.student",
+  "field_mappings": [
+    {
+      "source_field": "pieas_id",
+      "target_field": null,
+      "handling": "external_id",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "roll_number",
+      "target_field": "gr_no",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "first_name",
+      "target_field": null,
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "last_name",
+      "target_field": null,
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "gender",
+      "target_field": "gender",
+      "handling": "value_map",
+      "value_map": {
+        "male": "m",
+        "female": "f"
+      },
+      "note": null
+    },
+    {
+      "source_field": "date_of_birth",
+      "target_field": "birth_date",
+      "handling": "direct",
+      "value_map": null,
+      "note": null
+    },
+    {
+      "source_field": "department",
+      "target_field": null,
+      "handling": "unmapped",
+      "value_map": null,
+      "note": "op.student has no direct department field; relational via course_detail_ids."
+    },
+    {
+      "source_field": "batch_year",
+      "target_field": null,
+      "handling": "unmapped",
+      "value_map": null,
+      "note": "same as department -- relational, not a plain field."
+    }
+  ],
+  "unmapped_required_target_fields": []
+}
