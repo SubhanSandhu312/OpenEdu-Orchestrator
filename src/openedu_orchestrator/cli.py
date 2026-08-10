@@ -40,10 +40,12 @@ from openedu_orchestrator import pieas_source as src
 from openedu_orchestrator import pieas_source_mysql
 from openedu_orchestrator.pieas_source import reset_database as reset_pieas_db
 from openedu_orchestrator.graph import run_cycle
+from openedu_orchestrator.logging_config import configure_logging
 from openedu_orchestrator.seed import seed_pieas
 from openedu_orchestrator import mapping_authoring as ma
 
 console = Console()
+configure_logging()
 
 # --source: which physical store backs PIEAS. Both represent the same
 # *logical* source system ("pieas"), just different backing technology --

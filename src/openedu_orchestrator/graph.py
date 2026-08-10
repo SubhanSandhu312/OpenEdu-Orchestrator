@@ -29,8 +29,11 @@ from openedu_orchestrator.agents.orchestrator import OrchestratorAgent
 from openedu_orchestrator.agents.transformer import TransformerAgent
 from openedu_orchestrator.agents.validator import ValidationAgent
 from openedu_orchestrator.config import BULK_PAGE_SIZE
+from openedu_orchestrator.logging_config import get_logger
 from openedu_orchestrator.models import RunReport
 from openedu_orchestrator.state import PipelineState
+
+logger = get_logger(__name__)
 
 
 def build_pipeline_graph(
@@ -237,6 +240,10 @@ def run_cycle(
     """
     started_at = datetime.now(timezone.utc)
     watermark_before = orchestrator.get_watermark(entity_type)
+    logger.info(
+        "cycle_started", extra={"mode": mode, "entity_type": entity_type,
+                                 "watermark_before": watermark_before.isoformat() if watermark_before else None},
+    )
 
     app = build_pipeline_graph(orchestrator, extractor, loader, validator, transform_fn=transform_fn)
     initial_state: PipelineState = {
@@ -268,4 +275,20 @@ def run_cycle(
     report.unchanged = final_state.get("total_unchanged", 0)
     report.archived = final_state.get("total_archived", 0)
 
+    log_level = logger.error if report.errors else logger.info
+    log_level(
+        "cycle_completed",
+        extra={
+            "mode": mode, "entity_type": entity_type,
+            "duration_seconds": (report.finished_at - report.started_at).total_seconds(),
+            # "created" is a reserved LogRecord attribute (record creation
+            # time) -- logging.makeRecord() raises KeyError if `extra`
+            # tries to override it, found by actually running this against
+            # a live sync rather than just eyeballing the code.
+            "n_fetched": report.fetched, "n_created": report.created, "n_updated": report.updated,
+            "n_unchanged": report.unchanged, "n_archived": report.archived, "pages": report.pages,
+            "error_count": len(report.errors), "validation_issue_count": len(report.validation_issues),
+            "sync_errors": report.errors,
+        },
+    )
     return report

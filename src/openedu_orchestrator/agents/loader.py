@@ -12,8 +12,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from openedu_orchestrator.config import OPENEDUCAT_DB_PATH, OPENEDUCAT_MODEL_FOR_ENTITY
+from openedu_orchestrator.logging_config import get_logger
 from openedu_orchestrator.models import LoadResult
 from openedu_orchestrator.openeducat_client import OpenEduCatClient
+
+logger = get_logger(__name__)
 
 
 class LoaderAgent:
@@ -71,6 +74,11 @@ class LoaderAgent:
                 )
             raise ValueError(f"Unknown load action: {action!r}")
         except Exception as exc:  # noqa: BLE001 -- surfaced in RunReport.errors, not swallowed
+            logger.error(
+                "load_write_failed",
+                extra={"entity_type": entity_type, "action": action, "source_id": source_id,
+                       "openeducat_id": openeducat_id, "exception": str(exc)},
+            )
             return LoadResult(
                 entity_type=entity_type, source_id=source_id, action=action,
                 openeducat_id=openeducat_id or -1, ok=False, error=str(exc),

@@ -35,6 +35,9 @@ from openedu_orchestrator.config import (
     RPC_RETRY_MAX_ATTEMPTS,
     OPENEDUCAT_DB_PATH,
 )
+from openedu_orchestrator.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Transient, network-level failures only -- deliberately excludes
 # xmlrpc.client.Fault, which is Odoo's own application-level error (a
@@ -63,11 +66,20 @@ def _call_with_retry(
     while True:
         try:
             return fn()
-        except _TRANSIENT_RPC_EXCEPTIONS:
+        except _TRANSIENT_RPC_EXCEPTIONS as exc:
             attempt += 1
             if attempt >= max_attempts:
+                logger.error(
+                    "rpc_retry_exhausted",
+                    extra={"attempt": attempt, "max_attempts": max_attempts, "exception": str(exc)},
+                )
                 raise
-            time.sleep(base_delay * (2 ** (attempt - 1)))
+            delay = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "rpc_retry",
+                extra={"attempt": attempt, "max_attempts": max_attempts, "delay_seconds": delay, "exception": str(exc)},
+            )
+            time.sleep(delay)
 
 
 _MODEL_TABLE = {
