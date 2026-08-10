@@ -27,6 +27,7 @@ from openedu_orchestrator.models import (
     MappingProposal,
     UnmappedRequiredTargetField,
 )
+from openedu_orchestrator.real_target_reference_data import REFERENCE_PREFIX
 from openedu_orchestrator.source_registry import get_source_system
 
 
@@ -206,6 +207,21 @@ def compile_mapping(config: dict) -> Callable[[str, dict], dict]:
                 # registers it via ir.model.data rather than writing it as
                 # a plain field.
                 out["source_id"] = value
+                continue
+            if handling == "reference":
+                # Same sentinel pattern as external_id above. The value is
+                # not a field on the target at all -- it names a *shared*
+                # record (a department, a subject, an exam) that many source
+                # rows point at, and which has to be looked up or created
+                # once on the target side.
+                #
+                # It is passed through under a namespaced key rather than
+                # resolved here on purpose: resolving requires talking to the
+                # target, and this transform must stay a pure function (the
+                # report's Section 3.3 requirement for the Transformer).
+                # OdooXmlRpcClient pops these and resolves them -- see
+                # real_target_reference_data.py.
+                out[f"{REFERENCE_PREFIX}{fm['source_field']}"] = value
                 continue
             target_field = fm.get("target_field") or fm["source_field"]
             out[target_field] = value

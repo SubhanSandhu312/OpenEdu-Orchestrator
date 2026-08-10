@@ -124,7 +124,7 @@ class LoadResult(BaseModel):
     error: Optional[str] = None
 
 
-FieldHandling = Literal["direct", "value_map", "external_id", "unmapped"]
+FieldHandling = Literal["direct", "value_map", "external_id", "reference", "unmapped"]
 
 
 class ValueMapEntry(BaseModel):
@@ -139,9 +139,14 @@ class FieldMappingEntry(BaseModel):
     `value_map`: enum/selection translation (e.g. PIEAS "male" -> Odoo "m").
     `external_id`: routed to the client's ir.model.data handling, same as
     pieas_id today -- not written as a plain field at all.
-    `unmapped`: flagged, not guessed -- either no target equivalent exists,
-    or the target field is relational (needs FK/linking logic, not a value
-    mapping). `note` should say which.
+    `reference`: names a *shared* target record (a department, a subject, an
+    exam) that many source rows point at, rather than a value belonging to
+    this row. Passed through to the client as a sentinel and resolved
+    get-or-create style against the target -- see
+    real_target_reference_data.py. Use this where `unmapped` would otherwise
+    be used with a "relational, needs FK logic" note.
+    `unmapped`: flagged, not guessed -- no target equivalent exists at all.
+    `note` should say why.
 
     `value_map` is a list of explicit (source_value, target_value) pairs,
     not a plain dict -- Gemini's free Developer API structured-output mode

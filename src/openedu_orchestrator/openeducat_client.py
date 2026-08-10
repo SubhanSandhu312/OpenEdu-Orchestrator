@@ -36,6 +36,7 @@ from openedu_orchestrator.config import (
     OPENEDUCAT_DB_PATH,
 )
 from openedu_orchestrator.logging_config import get_logger
+from openedu_orchestrator import real_target_reference_data as refdata
 
 logger = get_logger(__name__)
 
@@ -359,9 +360,19 @@ class OdooXmlRpcClient:
     def create(self, model: str, values: dict[str, Any]) -> int:
         values = dict(values)  # don't mutate the caller's dict
         source_id = values.pop("source_id", None)
+        values, refs = refdata.split_references(values)
+        field_updates, post_write = refdata.resolve(self, model, refs)
+        values.update(field_updates)
         new_id = self._execute(model, "create", [self._marshal_values(values)])
         if source_id:
             self._set_external_id(model, new_id, source_id)
+        if post_write is not None:
+            # Links that can only be made once the record exists (e.g. a
+            # student's enrollment record). Deliberately after the external
+            # ID is registered, so a failure here still leaves the record
+            # discoverable and the next run can repair it rather than
+            # creating a duplicate.
+            post_write(new_id)
         return new_id
 
     def write(self, model: str, record_id: int, values: dict[str, Any]) -> bool:
@@ -375,9 +386,18 @@ class OdooXmlRpcClient:
             return True
         values = dict(values)
         values.pop("source_id", None)
-        if not values:
-            return True
-        return self._execute(model, "write", [[record_id], self._marshal_values(values)])
+        values, refs = refdata.split_references(values)
+        field_updates, post_write = refdata.resolve(self, model, refs)
+        values.update(field_updates)
+        ok = self._execute(model, "write", [[record_id], self._marshal_values(values)]) if values else True
+        if post_write is not None:
+            # Idempotent by construction (see enroll_student), so re-running
+            # an update is safe. A record whose department genuinely changed
+            # gains a second enrollment rather than losing the first --
+            # correct for an academic history, and consistent with the
+            # archive-don't-delete stance taken for deletions.
+            post_write(record_id)
+        return ok
 
     def archive(self, model: str, record_id: int) -> bool:
         """write(model, id, {'active': False}) -- the report's adopted deletion handling."""

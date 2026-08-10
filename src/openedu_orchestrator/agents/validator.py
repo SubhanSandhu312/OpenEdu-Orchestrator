@@ -14,6 +14,20 @@ they never block or retry a write themselves.
 from __future__ import annotations
 
 from openedu_orchestrator.agents.loader import LoaderAgent
+from openedu_orchestrator.real_target_reference_data import REFERENCE_PREFIX
+
+# Keys the client consumes and never writes as a plain field, so they can
+# never appear in a read-back and must not be compared against one:
+#   "source_id"  -> registered via ir.model.data instead
+#   "__ref__*"   -> resolved to shared reference records / enrollment links
+# Both were found as real false-positive validation failures rather than
+# reasoned about up front, which is why this is one shared rule now instead
+# of a second special case bolted next to the first.
+_SENTINEL_FIELDS = frozenset({"source_id"})
+
+
+def _is_client_sentinel(field: str) -> bool:
+    return field in _SENTINEL_FIELDS or field.startswith(REFERENCE_PREFIX)
 
 
 class ValidationAgent:
@@ -50,7 +64,7 @@ class ValidationAgent:
         mismatches = [
             f"{field}=expected {value!r}, got {actual.get(field)!r}"
             for field, value in expected_fields.items()
-            if field != "source_id" and not self._matches(value, actual.get(field))
+            if not _is_client_sentinel(field) and not self._matches(value, actual.get(field))
         ]
         if mismatches:
             return f"{entity_type}/{openeducat_id}: " + "; ".join(mismatches)
