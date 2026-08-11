@@ -295,8 +295,14 @@ def status(source: str, target: str):
         pieas_table = PIEAS_TABLE_FOR_ENTITY[et]
         model = model_for_entity[et]
         pieas_count = source_module.count_rows(pieas_conn, pieas_table)
-        active_count = oc_client.search_count(model, [("active", "=", True)])
-        archived_count = oc_client.search_count(model, [("active", "=", False)])
+        # Not every real model has an `active` field (op.exam.attendees does
+        # not), and filtering on one that doesn't exist is a hard error --
+        # so ask before counting rather than crashing the whole table.
+        if oc_client.supports_active(model):
+            active_count = str(oc_client.search_count(model, [("active", "=", True)]))
+            archived_count = str(oc_client.search_count(model, [("active", "=", False)]))
+        else:
+            active_count, archived_count = str(oc_client.search_count(model)), "n/a"
         mapping_count = orchestrator.mapping_count(et)
         watermark = orchestrator.get_watermark(et)
         table.add_row(

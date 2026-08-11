@@ -210,6 +210,14 @@ class OpenEduCatClient:
         self._conn.commit()
         return cur.rowcount > 0
 
+    def supports_active(self, model: str) -> bool:
+        """Every mock table carries an `active` column, so this is always
+        True here. Present for interface parity with OdooXmlRpcClient, where
+        it genuinely varies by model.
+        """
+        self._table(model)  # keep the unknown-model error behaviour consistent
+        return True
+
     def archive(self, model: str, record_id: int) -> bool:
         """write(model, id, {'active': False}) -- the report's adopted deletion handling."""
         return self.write(model, record_id, {"active": False})
@@ -302,6 +310,7 @@ class OdooXmlRpcClient:
                 f"Odoo authentication failed for user {username!r} against db {db!r} at {url}"
             )
         self._models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
+        self._supports_active_cache: dict[str, bool] = {}
 
     def _execute(
         self, model: str, method: str, args: Optional[list] = None, kwargs: Optional[dict] = None
@@ -419,8 +428,34 @@ class OdooXmlRpcClient:
             post_write(record_id)
         return ok
 
+    def supports_active(self, model: str) -> bool:
+        """Whether a model has Odoo's `active` field -- i.e. whether it can
+        be archived at all.
+
+        Not every model has one: real op.exam.attendees does not, which is
+        only discoverable by asking the instance. Cached, since a deletion
+        cycle asks once per record but the answer cannot change mid-run.
+        """
+        if model not in self._supports_active_cache:
+            fields = self._execute(model, "fields_get", [[]], {"attributes": ["type"]})
+            self._supports_active_cache[model] = "active" in fields
+        return self._supports_active_cache[model]
+
     def archive(self, model: str, record_id: int) -> bool:
-        """write(model, id, {'active': False}) -- the report's adopted deletion handling."""
+        """write(model, id, {'active': False}) -- the report's adopted deletion handling.
+
+        Models with no `active` field cannot be archived. This raises rather
+        than silently doing nothing or hard-deleting instead -- the report
+        rejects hard delete as irreversible (Section 5.4), so the right
+        outcome is a visible error in the run report and an explicit human
+        decision for that model, not a quiet fallback.
+        """
+        if not self.supports_active(model):
+            raise ValueError(
+                f"{model} has no 'active' field, so it cannot be archived. Hard-deleting "
+                f"instead is rejected by the report's Section 5.4 as irreversible, so this "
+                f"model needs an explicit deletion policy rather than a silent fallback."
+            )
         return self.write(model, record_id, {"active": False})
 
     def search_read(
