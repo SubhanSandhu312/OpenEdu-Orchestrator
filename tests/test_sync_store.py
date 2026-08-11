@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from openedu_orchestrator import sync_store as store
 
 SRC = "pieas"
@@ -94,3 +96,76 @@ def test_touch_mapping_bumps_timestamp_without_changing_target(dbs):
     after = store.get_mapping(conn, SRC, "PIEAS-STU-1", "student")
     assert after["openeducat_id"] == 101
     assert after["last_synced_at"] >= before
+
+
+def test_target_guard_adopts_on_a_fresh_store(dbs):
+    """Nothing synced yet means no ids exist to misinterpret, so claiming the
+    target is safe and must not require ceremony.
+    """
+    from openedu_orchestrator.agents.orchestrator import OrchestratorAgent
+
+    orch = OrchestratorAgent(dbs.sync_path, target="mock")
+    orch.ensure_target("student")
+    orch.ensure_target("student")  # idempotent
+    orch.close()
+
+
+def test_target_guard_blocks_switching_target(dbs):
+    """The core protection: mock ids handed to a real Odoo would update
+    whatever unrelated record happens to hold that id.
+    """
+    from openedu_orchestrator.agents.orchestrator import OrchestratorAgent
+    from openedu_orchestrator.sync_store import TargetMismatchError
+
+    orch = OrchestratorAgent(dbs.sync_path, target="mock")
+    orch.ensure_target("student")
+    orch.close()
+
+    other = OrchestratorAgent(dbs.sync_path, target="real")
+    with pytest.raises(TargetMismatchError, match="mock"):
+        other.ensure_target("student")
+    other.close()
+
+
+def test_target_guard_refuses_to_guess_on_a_legacy_store(dbs):
+    """A store written before target tracking has mappings but no recorded
+    target. Adopting would be a guess with silent-corruption consequences.
+    """
+    from openedu_orchestrator.agents.orchestrator import OrchestratorAgent
+    from openedu_orchestrator.sync_store import TargetMismatchError
+
+    seeded = OrchestratorAgent(dbs.sync_path)  # target=None -> guard opted out
+    seeded.record_load_results(
+        "student",
+        [{"source_id": "S1", "content_hash": "h"}],
+        [{"source_id": "S1", "openeducat_id": 1, "ok": True}],
+    )
+    seeded.close()
+
+    orch = OrchestratorAgent(dbs.sync_path, target="real")
+    with pytest.raises(TargetMismatchError, match="predates target tracking"):
+        orch.ensure_target("student")
+    orch.close()
+
+
+def test_target_guard_is_opt_out_by_default(dbs):
+    """Every pre-existing caller and test constructs OrchestratorAgent with
+    no target and must keep working unchanged.
+    """
+    from openedu_orchestrator.agents.orchestrator import OrchestratorAgent
+
+    orch = OrchestratorAgent(dbs.sync_path)
+    orch.ensure_target("student")
+    orch.close()
+
+
+def test_target_guard_is_per_entity(dbs):
+    """Entities are migrated independently, so the guard must not force them
+    all onto one target in lockstep.
+    """
+    from openedu_orchestrator.agents.orchestrator import OrchestratorAgent
+
+    orch = OrchestratorAgent(dbs.sync_path, target="mock")
+    orch.ensure_target("student")
+    orch.ensure_target("faculty")
+    orch.close()

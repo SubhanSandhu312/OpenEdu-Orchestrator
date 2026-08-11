@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS sync_state (
     source_system   TEXT NOT NULL,
     entity_type     TEXT NOT NULL,
     last_synced_at  TEXT,
+    target          TEXT,
     PRIMARY KEY (source_system, entity_type)
 );
 """
@@ -55,6 +56,46 @@ def get_connection(db_path: Path = SYNC_STORE_DB_PATH) -> sqlite3.Connection:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
+    # CREATE TABLE IF NOT EXISTS will not add a column to a store that
+    # already exists, so bring older files forward explicitly. Left NULL for
+    # pre-existing rows, which get_target treats as "not yet known" and
+    # adopts on the next run rather than guessing.
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(sync_state)")}
+    if "target" not in existing:
+        conn.execute("ALTER TABLE sync_state ADD COLUMN target TEXT")
+    conn.commit()
+
+
+class TargetMismatchError(RuntimeError):
+    """Raised when a cycle is about to run against a different target than
+    the one that wrote the current mappings.
+
+    sync_mapping stores openeducat_id values that are only meaningful in one
+    target's id space. Running against a different target would hand those
+    ids to a system where they identify completely unrelated records -- so
+    an "update" silently overwrites the wrong row. Found by running the mock
+    demo (which resets the store) on a machine that had also synced to a
+    real Odoo: the store then mapped PIEAS-STU-00001 to id 1, which in the
+    real instance was an unrelated OpenEduCat demo student.
+    """
+
+
+def get_target(conn: sqlite3.Connection, source_system: str, entity_type: str) -> Optional[str]:
+    cur = conn.execute(
+        "SELECT target FROM sync_state WHERE source_system = ? AND entity_type = ?",
+        (source_system, entity_type),
+    )
+    row = cur.fetchone()
+    return row["target"] if row else None
+
+
+def set_target(conn: sqlite3.Connection, source_system: str, entity_type: str, target: str) -> None:
+    conn.execute(
+        """INSERT INTO sync_state (source_system, entity_type, target)
+           VALUES (?, ?, ?)
+           ON CONFLICT (source_system, entity_type) DO UPDATE SET target = excluded.target""",
+        (source_system, entity_type, target),
+    )
     conn.commit()
 
 

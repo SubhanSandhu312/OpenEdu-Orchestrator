@@ -238,6 +238,10 @@ def run_cycle(
     return a RunReport summarising what happened. This is the function the
     CLI and the tests call -- it hides the LangGraph state dict from callers.
     """
+    # Before any work: refuse to run against a different target than the one
+    # that wrote the existing mappings (see OrchestratorAgent.ensure_target).
+    orchestrator.ensure_target(entity_type)
+
     started_at = datetime.now(timezone.utc)
     watermark_before = orchestrator.get_watermark(entity_type)
     logger.info(

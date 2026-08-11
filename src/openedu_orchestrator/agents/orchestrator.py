@@ -30,10 +30,68 @@ from openedu_orchestrator import sync_store as store
 
 
 class OrchestratorAgent:
-    def __init__(self, db_path: Path = SYNC_STORE_DB_PATH, source_system: str = "pieas"):
+    def __init__(
+        self,
+        db_path: Path = SYNC_STORE_DB_PATH,
+        source_system: str = "pieas",
+        target: str | None = None,
+    ):
         self._conn = store.get_connection(db_path)
         store.init_schema(self._conn)
         self._source_system = source_system
+        self._target = target
+
+    def ensure_target(self, entity_type: str) -> None:
+        """Refuse to run against a different target than the one that wrote
+        the current mappings.
+
+        sync_mapping's openeducat_id values only mean anything in one
+        target's id space. Handing a mock id to a real Odoo instance does
+        not fail -- it silently updates whatever unrelated record happens to
+        hold that id. This is the guard against that, and it is checked
+        before any cycle does work rather than left to a caller to remember.
+
+        `target=None` opts out entirely, so every existing caller and test
+        that never knew about targets keeps working unchanged.
+        """
+        if self._target is None:
+            return
+        recorded = store.get_target(self._conn, self._source_system, entity_type)
+        if recorded == self._target:
+            return
+        if recorded is None:
+            # No target recorded. Safe to adopt only if nothing has been
+            # synced yet -- an empty store has no ids to misinterpret. If
+            # mappings already exist, they came from *some* target and this
+            # store predates target tracking, so which one is genuinely
+            # unknown and adopting would be a guess with silent-corruption
+            # consequences.
+            if self.mapping_count(entity_type) == 0:
+                store.set_target(self._conn, self._source_system, entity_type, self._target)
+                return
+            raise store.TargetMismatchError(
+                f"{entity_type}: this state store already holds "
+                f"{self.mapping_count(entity_type)} mappings but predates target tracking, "
+                f"so which target their OpenEduCat ids belong to is unknown. Refusing to "
+                f"guess, because guessing wrong silently updates unrelated records.\n"
+                f"  - If these came from the mock: run 'seed' to reset everything cleanly.\n"
+                f"  - If these came from a real Odoo: delete data/orchestrator_state.db and "
+                f"re-run 'migrate --target real' (already-synced records stay discoverable "
+                f"via their external IDs, so they are matched rather than duplicated)."
+            )
+        if recorded != self._target:
+            raise store.TargetMismatchError(
+                f"{entity_type}: this state store was last synced to target {recorded!r}, "
+                f"but you are running against {self._target!r}. The stored OpenEduCat ids "
+                f"belong to {recorded!r}'s id space, so continuing would update unrelated "
+                f"records in {self._target!r}.\n"
+                f"  - To demo against the mock: run 'seed' (resets source, mock target, and "
+                f"this store).\n"
+                f"  - To go back to {recorded!r}: re-run with --target {recorded}.\n"
+                f"  - To repoint at {self._target!r} deliberately: delete "
+                f"data/orchestrator_state.db and re-run 'migrate' (records already in the "
+                f"target stay discoverable via their external IDs)."
+            )
 
     def close(self) -> None:
         self._conn.close()
@@ -154,6 +212,31 @@ class OrchestratorAgent:
 
     def mapping_count(self, entity_type: str) -> int:
         return store.count_mappings(self._conn, self._source_system, entity_type)
+
+    def adopt_mapping(self, entity_type: str, source_id: str, openeducat_id: int, record: dict) -> None:
+        """Record a mapping for a record already present in the target,
+        discovered by external-ID lookup rather than by writing it.
+
+        Used to rebuild a lost or repointed state store. The content hash is
+        computed exactly as classify_records would, so the next change cycle
+        sees the record as `unchanged` rather than re-writing everything.
+        """
+        business_fields = {k: v for k, v in record.items() if k != "last_updated"}
+        store.upsert_mapping(
+            self._conn,
+            source_system=self._source_system,
+            source_id=source_id,
+            openeducat_id=openeducat_id,
+            entity_type=entity_type,
+            hash_=store.content_hash(business_fields),
+        )
+
+    def claim_target(self, entity_type: str) -> None:
+        """Record which target this store's ids belong to, after a rebuild
+        has established that they really do belong to it.
+        """
+        if self._target is not None:
+            store.set_target(self._conn, self._source_system, entity_type, self._target)
 
     def all_mappings(self, entity_type: str):
         """Every (source_id, openeducat_id, content_hash) this source_system has

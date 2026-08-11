@@ -71,7 +71,7 @@ def _build_agents(source: str = "pieas", target: str = "mock"):
     # source_system stays "pieas" regardless of which physical store backs
     # it -- SQLite and MySQL are two backing stores for the same logical
     # PIEAS system in this build, not two different source systems.
-    orchestrator = OrchestratorAgent(SYNC_STORE_DB_PATH, source_system="pieas")
+    orchestrator = OrchestratorAgent(SYNC_STORE_DB_PATH, source_system="pieas", target=target)
     if target == "real":
         client = OdooXmlRpcClient()
         loader = LoaderAgent(client=client, model_for_entity=REAL_MODEL_FOR_ENTITY)
@@ -108,7 +108,20 @@ _TARGET_OPTION = click.option(
 )
 
 
-@click.group()
+class _Cli(click.Group):
+    """Renders TargetMismatchError as a clean operator-facing message rather
+    than a stack trace. It is a guard doing its job, not a crash, and the
+    message already says exactly what to do about it.
+    """
+
+    def invoke(self, ctx):
+        try:
+            return super().invoke(ctx)
+        except sync_store.TargetMismatchError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+
+@click.group(cls=_Cli)
 def cli():
     """OpenEdu Orchestrator -- agentic PIEAS -> OpenEduCat sync (test build)."""
 
@@ -371,6 +384,52 @@ def reconcile(source: str, target: str, entity: str):
     pieas_conn.close(); extractor.close(); loader.close(); orchestrator.close()
     if any_drift:
         raise SystemExit(1)
+
+
+@cli.command(name="rebuild-state")
+@_SOURCE_OPTION
+@_TARGET_OPTION
+@click.option("--entity", type=click.Choice(list(ENTITY_TYPES) + ["all"]), default="all")
+def rebuild_state(source: str, target: str, entity: str):
+    """Rebuild the local state store from the target's own external IDs.
+
+    Only writes the local state store -- never the target. Use it when
+    sync_mapping has been lost or repointed (e.g. after running the mock
+    'demo', which resets it) but records are already present in the real
+    target. Because the pipeline registers every record's source id through
+    Odoo's own ir.model.data, those records stay discoverable without the
+    local store, so they are matched rather than duplicated.
+    """
+    source_module = SOURCE_MODULES[source]
+    conn_info = PIEAS_DB_PATH if source == "pieas" else None
+    pieas_conn = source_module.get_connection(conn_info)
+    orchestrator, extractor, loader, validator = _build_agents(source, target)
+    client = loader._client
+    if not hasattr(client, "find_by_external_id"):
+        raise click.ClickException(
+            f"--target {target} has no external-ID lookup, so there is nothing to rebuild "
+            f"from. This command is for recovering real-target state; for the mock, run "
+            f"'seed' to start clean."
+        )
+    model_for_entity = REAL_MODEL_FOR_ENTITY if target == "real" else OPENEDUCAT_MODEL_FOR_ENTITY
+
+    for et in _entity_list(entity):
+        table_name = PIEAS_TABLE_FOR_ENTITY[et]
+        model = model_for_entity[et]
+        found = missing = 0
+        for source_id in source_module.fetch_ids(pieas_conn, table_name):
+            target_id = client.find_by_external_id(model, source_id)
+            if target_id is None:
+                missing += 1
+                continue
+            orchestrator.adopt_mapping(et, source_id, target_id, source_module.row_by_id(pieas_conn, table_name, source_id))
+            found += 1
+        orchestrator.claim_target(et)
+        console.print(f"[green]{et}[/green]: adopted {found} existing mapping(s); "
+                       f"{missing} source row(s) not yet in the target "
+                       f"(a normal 'migrate'/'sync' will create those).")
+
+    pieas_conn.close(); extractor.close(); loader.close(); orchestrator.close()
 
 
 @cli.command()
