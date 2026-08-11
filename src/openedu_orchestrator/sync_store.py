@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS sync_mapping (
     openeducat_id   INTEGER NOT NULL,
     entity_type     TEXT NOT NULL,
     content_hash    TEXT,
+    archived        INTEGER NOT NULL DEFAULT 0,
     last_synced_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f000Z','now')),
     UNIQUE (source_system, source_id, entity_type)
 );
@@ -63,6 +64,9 @@ def init_schema(conn: sqlite3.Connection) -> None:
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(sync_state)")}
     if "target" not in existing:
         conn.execute("ALTER TABLE sync_state ADD COLUMN target TEXT")
+    mapping_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sync_mapping)")}
+    if "archived" not in mapping_cols:
+        conn.execute("ALTER TABLE sync_mapping ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
@@ -130,7 +134,7 @@ def get_mapping(
 
 def get_all_mappings(conn: sqlite3.Connection, source_system: str, entity_type: str) -> list[sqlite3.Row]:
     cur = conn.execute(
-        "SELECT source_id, openeducat_id, content_hash FROM sync_mapping "
+        "SELECT source_id, openeducat_id, content_hash, archived FROM sync_mapping "
         "WHERE source_system = ? AND entity_type = ?",
         (source_system, entity_type),
     )
@@ -162,8 +166,26 @@ def upsert_mapping(
            ON CONFLICT (source_system, source_id, entity_type)
            DO UPDATE SET openeducat_id = excluded.openeducat_id,
                          content_hash = excluded.content_hash,
+                         archived = 0,
                          last_synced_at = excluded.last_synced_at""",
         (source_system, source_id, openeducat_id, entity_type, hash_),
+    )
+    conn.commit()
+
+
+def mark_archived(conn: sqlite3.Connection, source_system: str, source_id: str, entity_type: str) -> None:
+    """Record that this mapping's target record is currently archived.
+
+    Kept locally rather than read back from the target, because the
+    Orchestrator is the only agent allowed to hold sync state and cannot
+    query the target -- and because checking would otherwise cost one RPC
+    per record on every change cycle. Cleared by upsert_mapping, since a
+    successful write means the record is live again.
+    """
+    conn.execute(
+        """UPDATE sync_mapping SET archived = 1
+           WHERE source_system = ? AND source_id = ? AND entity_type = ?""",
+        (source_system, source_id, entity_type),
     )
     conn.commit()
 

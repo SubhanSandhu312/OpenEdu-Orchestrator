@@ -137,6 +137,17 @@ class OrchestratorAgent:
             if mapping is None:
                 action = "create"
                 openeducat_id = None
+            elif mapping["archived"]:
+                # Present in the source but archived in the target: the
+                # record was deleted, then came back. It must be revived even
+                # if its content is byte-identical to before, so this is
+                # checked *before* the content-hash shortcut -- otherwise a
+                # delete-then-restore-unchanged would hash equal, classify as
+                # "unchanged", never be written, and stay invisible in the
+                # target forever. Found by reconcile flagging exactly that
+                # case as stale_archived with nothing able to repair it.
+                action = "update"
+                openeducat_id = mapping["openeducat_id"]
             elif mapping["content_hash"] == h:
                 action = "unchanged"
                 openeducat_id = mapping["openeducat_id"]
@@ -189,6 +200,10 @@ class OrchestratorAgent:
         for result in archive_results:
             if result["ok"]:
                 store.touch_mapping(self._conn, self._source_system, result["source_id"], entity_type)
+                # Remember that the target record is now inactive, so that if
+                # this source_id ever reappears the change cycle revives it
+                # instead of deciding it is unchanged.
+                store.mark_archived(self._conn, self._source_system, result["source_id"], entity_type)
 
     def advance_watermark(self, entity_type: str, processed_records: list[dict]) -> None:
         """Advance to the max last_updated actually processed in this run,

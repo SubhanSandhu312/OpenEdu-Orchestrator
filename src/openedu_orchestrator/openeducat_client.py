@@ -201,6 +201,11 @@ class OpenEduCatClient:
         table = self._table(model)
         if not values:
             return True
+        # Mirrors OdooXmlRpcClient.write: a record we are writing exists in
+        # the source, so it must not stay archived. archive() passes
+        # active=False explicitly and is therefore left alone.
+        if "active" not in values:
+            values = {**values, "active": 1}
         set_cols = list(values.keys()) + ["write_date"]
         set_clause = ", ".join(f"{c} = ?" for c in set_cols)
         params = list(values.values()) + [_now(), record_id]
@@ -418,6 +423,13 @@ class OdooXmlRpcClient:
         values, refs = refdata.split_references(values)
         field_updates, post_write = refdata.resolve(self, model, refs)
         values.update(field_updates)
+        # Source-is-authoritative: we are writing this record because the
+        # source still has it, so it must not stay archived in the target.
+        # Guarded on "active" being absent, which is precisely what makes
+        # archive() -- the one caller that passes active=False deliberately --
+        # continue to work without a special case.
+        if "active" not in values and self.supports_active(model):
+            values["active"] = True
         ok = self._execute(model, "write", [[record_id], self._marshal_values(values)]) if values else True
         if post_write is not None:
             # Idempotent by construction (see enroll_student), so re-running

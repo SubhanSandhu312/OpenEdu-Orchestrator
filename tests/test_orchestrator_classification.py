@@ -75,3 +75,22 @@ def test_is_bulk_mode_flips_after_first_mapping(agents):
     assert agents.orchestrator.is_bulk_mode("student") is False
     # unrelated entity type is unaffected
     assert agents.orchestrator.is_bulk_mode("faculty") is True
+
+
+def test_archived_mapping_classifies_as_update_even_when_hash_matches(dbs, agents):
+    """The archived check must come *before* the content-hash shortcut."""
+    from openedu_orchestrator import sync_store as store
+
+    record = {"source_id": "PIEAS-STU-R1", "name": "R", "last_updated": "2026-01-01T00:00:00"}
+    business = {k: v for k, v in record.items() if k != "last_updated"}
+    store.upsert_mapping(
+        agents.orchestrator._conn, source_system="pieas", source_id="PIEAS-STU-R1",
+        openeducat_id=99, entity_type="student", hash_=store.content_hash(business),
+    )
+    # identical content -> would normally be "unchanged"
+    assert agents.orchestrator.classify_records("student", [record])[0]["action"] == "unchanged"
+
+    store.mark_archived(agents.orchestrator._conn, "pieas", "PIEAS-STU-R1", "student")
+    revived = agents.orchestrator.classify_records("student", [record])[0]
+    assert revived["action"] == "update"
+    assert revived["openeducat_id"] == 99
