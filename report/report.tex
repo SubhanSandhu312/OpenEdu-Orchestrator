@@ -292,9 +292,16 @@ Rather than a monolithic script, the solution is built as a four-agent ecosystem
   \draw[arr] (transformer) -- (loader);
   \draw[arr] (loader) -- (odoo);
 
-  \draw[darr] (orch.south -| extractor) -- (extractor.north);
-  \draw[darr] (orch.south) -- (transformer.north);
-  \draw[darr] (orch.south -| loader) -- (loader.north);
+  % Fan-out connector: one stem down from the Orchestrator, a horizontal bus,
+  % then a drop to each worker. A bare "(orch.south -| extractor)" endpoint
+  % only touches the Orchestrator box when extractor's x falls inside its
+  % width -- it doesn't here, so that line floated with no visible source.
+  \coordinate (bus) at ($(orch.south)+(0,-0.35)$);
+  \draw[gray!60, dashed, line width=0.8pt] (orch.south) -- (bus);
+  \draw[gray!60, dashed, line width=0.8pt] (extractor.north |- bus) -- (loader.north |- bus);
+  \draw[darr] (extractor.north |- bus) -- (extractor.north);
+  \draw[darr] (transformer.north |- bus) -- (transformer.north);
+  \draw[darr] (loader.north |- bus) -- (loader.north);
 \end{tikzpicture}%
 }
 \end{center}
