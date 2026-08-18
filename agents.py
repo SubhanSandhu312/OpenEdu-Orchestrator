@@ -194,13 +194,19 @@ Return ONLY a JSON array, one object per entity, in the same order:
             print(f"   [orchestrator] {e}\n   [orchestrator] using deterministic plan")
             plan = fallback
 
-        # The model advises; the state store decides. Never let it skip a bulk.
+        # The model advises; the state store and the caller's explicit request
+        # decide. Never let it skip a bulk, and never let it second-guess an
+        # explicitly requested phase -- Gemini has been observed reasoning its
+        # way to "incremental" for a non-empty entity even when "bulk" was the
+        # requested run_phase, which silently turned a bulk run into a no-op.
         by_entity = {p.get("entity"): p for p in plan if isinstance(p, dict)}
         final = []
         for s, fb in zip(survey, fallback):
             p = by_entity.get(s["entity"], fb)
             if s["state_store_empty"]:
                 p["phase"] = "bulk"
+            elif run_phase in ("bulk", "incremental"):
+                p["phase"] = run_phase
             elif p.get("phase") not in ("bulk", "incremental"):
                 p["phase"] = fb["phase"]
             p["entity"] = s["entity"]
