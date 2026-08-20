@@ -93,8 +93,10 @@ class PieasDB:
             script = fh.read()
         cn = self._connect(with_db=False)
         cur = cn.cursor()
-        for result in cur.execute(script, multi=True):
-            pass
+        for stmt in script.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                cur.execute(stmt)
         cn.commit()
         cur.close()
         cn.close()
