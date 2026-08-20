@@ -7,6 +7,11 @@ with **no API, no webhooks, and no ability to announce its own changes**.
 Because the source cannot push, the system must hunt. It does so on two rhythms, and
 routes each kind of record into the correct OpenEduCat module.
 
+> **New to this project / taking over maintenance?** Start with **[HANDOFF.md](HANDOFF.md)** —
+> full environment setup from zero, a code map, the operations runbook, known bugs, and the
+> suggested roadmap. This README is the conceptual overview; `HANDOFF.md` is what you need to
+> actually own the thing.
+
 ---
 
 ## The four agents
