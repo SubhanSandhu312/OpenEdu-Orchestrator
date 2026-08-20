@@ -10,3 +10,4 @@ report/*.log
 report/*.out
 report/*.toc
 report/*.synctex.gz
+AGENT_HANDOFF_PROMPT.md
