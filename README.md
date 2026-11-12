@@ -23,15 +23,14 @@ routes each kind of record into the correct OpenEduCat module.
 | **Transformer** | The pure function. Maps the PIEAS schema onto OpenEduCat models. Identical logic in every phase. | No |
 | **Loader** | The writer. Create, update, or archive via XML-RPC. | No |
 
-```
-                    ┌──────────────────┐
-        START ─────▶│   orchestrator   │────(entities exhausted)───▶ END
-                    └────────┬─────────┘
-                             │ dispatch
-                             ▼
-                        extractor ──▶ transformer ──▶ loader
-                             ▲                          │
-                             └──────────────────────────┘
+```mermaid
+flowchart LR
+    S([START]) --> O[Orchestrator<br/>owns state, picks the phase]
+    O -- "entities exhausted" --> E([END])
+    O -- dispatch --> X[Extractor<br/>reads the source]
+    X --> T[Transformer<br/>maps to OpenEduCat]
+    T --> L[Loader<br/>create / update / archive]
+    L -- "finalize, next entity" --> O
 ```
 
 ## The three phases — one pipeline
@@ -159,6 +158,7 @@ BATCH_SIZE = 200
 | `agents.py` | The four agents |
 | `graph.py` | LangGraph state machine |
 | `run.py` | CLI + scheduler |
+| `tests/` | pytest suite; fakes MySQL, Odoo and Gemini |
 | `sql/pieas_seed.sql` | Legacy schema + dummy data |
 
 State lives in `sync_state.db`; cached LLM plans live in `plans/`. Delete `plans/` to make
@@ -197,3 +197,26 @@ DELETE FROM exam_results WHERE id=1;                   -- python run.py deletion
 Each change appears in the matching OpenEduCat module; the deleted row is archived,
 not destroyed. Running `incremental` twice with no changes processes zero rows —
 the watermark holds.
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+76 tests, about 3 seconds, no services needed: MySQL, Odoo and Gemini are replaced by
+in-memory fakes (`tests/conftest.py`). GitHub Actions runs the suite on every push and pull
+request to `master` (Python 3.11 and 3.12).
+
+| File | What it pins down |
+|---|---|
+| `test_extractor_sql.py` | The SQL guard: only a single `SELECT` on an allow-listed table reaches MySQL; rejected or cached-but-invalid SQL falls back to the hand-written default |
+| `test_transformer.py` | The mapping sanitizer: invented fields, literal relational ids and off-list tables are dropped; missed foreign keys are recovered; per-row casting and relation resolution |
+| `test_orchestrator.py` | Phase decisions (the state store and an explicit request outrank the model), ghost detection, and when the watermark may advance |
+| `test_loader.py` | Create, update, archive vs delete, error triage, and that a failed archive is never retried as a create |
+| `test_state.py` | Watermarks only move forward; the id mapping; change hashes |
+| `test_pipeline_end_to_end.py` | The compiled LangGraph run through `graph.run()`: bulk, incremental, deletion, and a deleted row coming back |
+
+One test is marked `xfail` on purpose. It documents the known issue in
+[HANDOFF.md](HANDOFF.md) section 10.2 and will start passing when that is fixed.
